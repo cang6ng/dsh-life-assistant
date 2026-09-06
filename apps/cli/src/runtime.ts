@@ -66,6 +66,27 @@ export interface AgentRuntime {
   closeSession(): Promise<void>;
   /** Close the active session and shut the whole profile tree down. */
   dispose(): Promise<void>;
+
+  /**
+   * Desktop V2 additive surface (contract §6): a persistent live-event sink.
+   *
+   * Registers one `session/event` listener per subscription; each event is
+   * delivered only while the emitting session is the runtime's active
+   * session. Returns an unsubscribe function. Never re-emits history that
+   * `snapshotEvents()` already returned — use the snapshot API for
+   * hydration, this sink for live streaming only.
+   */
+  subscribeSessionEvents(cb: (sessionId: string, event: SessionEvent) => void): () => void;
+  /**
+   * Desktop V2 additive surface: the active session's summary, or null when
+   * no session is open. Useful to gate events on the bridge's own open id.
+   */
+  describeActiveSession(): { id: string; createdAt: number } | null;
+  /**
+   * Desktop V2 additive surface: the active session's full frozen event log
+   * (constructor seeds + replayed resume history), for snapshot hydration.
+   */
+  readActiveSessionSnapshot(): { id: string; createdAt: number; events: readonly SessionEvent[] } | null;
 }
 
 export async function createAgentRuntime(): Promise<AgentRuntime> {
@@ -110,6 +131,21 @@ export async function createAgentRuntime(): Promise<AgentRuntime> {
   };
 
   let active: { id: string; agent: Agent; dispose: () => Promise<void> } | null = null;
+
+  // Desktop V2 additive: one persistent fan-out over the cordis session/event
+  // firehose, guarded to the active session exactly like ask()'s own listener.
+  const sessionEventSinks = new Set<(sessionId: string, event: SessionEvent) => void>();
+  ctx.on("session/event", (eventSession: Session, event: SessionEvent) => {
+    if (active === null || eventSession !== active.agent.session) return;
+    const sessionId = String(eventSession.id);
+    for (const sink of sessionEventSinks) {
+      try {
+        sink(sessionId, event);
+      } catch (error) {
+        console.error(`[warning] session event sink failed: ${String(error)}`);
+      }
+    }
+  });
 
   const closeActiveSession = async (): Promise<void> => {
     if (active === null) return;
@@ -189,6 +225,29 @@ export async function createAgentRuntime(): Promise<AgentRuntime> {
     return replyText;
   };
 
+  const describeActiveSession = (): { id: string; createdAt: number } | null => {
+    if (active === null) return null;
+    const header = active.agent.session.header;
+    return { id: String(header.id), createdAt: header.createdAt };
+  };
+
+  const readActiveSessionSnapshot = (): {
+    id: string;
+    createdAt: number;
+    events: readonly SessionEvent[];
+  } | null => {
+    if (active === null) return null;
+    const header = active.agent.session.header;
+    return { id: String(header.id), createdAt: header.createdAt, events: active.agent.session.snapshotEvents() };
+  };
+
+  const subscribeSessionEvents = (cb: (sessionId: string, event: SessionEvent) => void): (() => void) => {
+    sessionEventSinks.add(cb);
+    return () => {
+      sessionEventSinks.delete(cb);
+    };
+  };
+
   const listSessions = async (): Promise<Array<{ id: string; createdAt: number }>> => {
     if (persistence === undefined) return [];
     const headers = await persistence.list();
@@ -210,7 +269,16 @@ export async function createAgentRuntime(): Promise<AgentRuntime> {
     }
   };
 
-  return { startSession, ask, listSessions, closeSession: closeActiveSession, dispose };
+  return {
+    startSession,
+    ask,
+    listSessions,
+    closeSession: closeActiveSession,
+    dispose,
+    subscribeSessionEvents,
+    describeActiveSession,
+    readActiveSessionSnapshot,
+  };
 }
 
 export type { UserMessage };
