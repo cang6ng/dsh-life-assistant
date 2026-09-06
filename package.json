@@ -1,0 +1,41 @@
+{
+  "name": "chinook-dsh-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Chinook Agent V1 - Chinook Music Store agent on the DSH runtime (Generic Runtime + Business Plugin + Thin CLI)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && tsc -p plugins/chinook/tsconfig.build.json",
+    "build:plugin": "tsc -p plugins/chinook/tsconfig.build.json",
+    "bootstrap": "tsx scripts/bootstrap.ts",
+    "test": "vitest run",
+    "pretest": "tsx scripts/bootstrap.ts && tsc -p plugins/chinook/tsconfig.build.json",
+    "chinook-agent": "tsx apps/cli/src/main.ts",
+    "prechinook-agent": "tsc -p plugins/chinook/tsconfig.build.json",
+    "dev": "pnpm run chinook-agent"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-app-boot": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-brand": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-home-paths": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-session": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
+    "better-sqlite3": "^12.2.0",
+    "chinook-dsh-plugin": "file:plugins/chinook"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0",
+    "@deepseek-ai/dsh-system-prompt": "0.1.2-rc.1"
+  }
+}

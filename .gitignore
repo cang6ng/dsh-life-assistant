@@ -1,0 +1,10 @@
+node_modules/
+.dsh/
+data/memory.db
+data/memory.db-*
+*.tsbuildinfo
+plugins/chinook/lib/
+tmp/
+.env
+.env.*
+!.env.example
