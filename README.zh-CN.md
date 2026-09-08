@@ -210,6 +210,22 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 - **NSIS 安装包**（`DSH Life Assistant_1.0.1_x64-setup.exe`）— Windows 推荐安装方式
 - **MSI**（`DSH Life Assistant_1.0.1_x64_en-US.msi`）— 备选安装格式
 
+## 首次运行：配置 API Key
+
+当前 v1.0.1 暂未提供应用内 API Key 设置界面。首次使用前，请先把 DeepSeek API Key 配置为 **Windows 用户环境变量**：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "DEEPSEEK_API_KEY",
+  "sk-your-key",
+  "User"
+)
+```
+
+API Key 可在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建。配置完成后，**完全退出并重新打开 DSH Life Assistant**——环境变量只在应用启动时读取。如果应用仍未读取到新变量，请重新登录一次 Windows 后再启动。
+
+兼容环境下 Runtime 也支持 `ANTHROPIC_AUTH_TOKEN`，但它仅在 `DEEPSEEK_API_KEY` 未设置时作为后备。请勿将真实密钥写入源码、README 或提交到 Git——README 与提交历史都是公开的。
+
 ## 环境
 
 | 变量 | 用途 | 示例 |

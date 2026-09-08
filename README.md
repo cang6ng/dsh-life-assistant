@@ -210,6 +210,22 @@ The installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 - **NSIS installer** (`DSH Life Assistant_1.0.1_x64-setup.exe`) — the recommended Windows install format
 - **MSI** (`DSH Life Assistant_1.0.1_x64_en-US.msi`) — alternative installer format
 
+## First Run: Configure an API Key
+
+DSH Life Assistant v1.0.1 does not yet provide an in-app API key settings screen. Before first use, configure your DeepSeek API key as a **Windows user environment variable**:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "DEEPSEEK_API_KEY",
+  "sk-your-key",
+  "User"
+)
+```
+
+Create the key at the [DeepSeek open platform](https://platform.deepseek.com/). After configuring it, **fully quit and reopen DSH Life Assistant** — the variable is only read when the app starts. If the app still does not pick it up, sign out and back into Windows once, then start it again.
+
+The runtime also accepts `ANTHROPIC_AUTH_TOKEN` in compatible environments, but only as a fallback when `DEEPSEEK_API_KEY` is unset. Never commit real API keys to this repository — README files and commit history are public.
+
 ## Environment
 
 | Variable | Purpose | Example |
