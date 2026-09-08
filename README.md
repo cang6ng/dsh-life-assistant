@@ -10,7 +10,7 @@ The current release ships with **Chinook Music**, the first complete domain impl
 
 ## What it can do today
 
-Everything below is real and shipped in v1.0.0 — all of it powered by the Chinook Music domain.
+Everything below is real and shipped in v1.0.1 — all of it powered by the Chinook Music domain.
 
 - **Music catalog search** — find artists, albums and tracks across the catalog
 - **Music recommendation** — similar albums and genre popularity, grounded in real data
@@ -207,8 +207,8 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 
 The installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 
-- **NSIS installer** (`DSH Life Assistant_1.0.0_x64-setup.exe`) — the recommended Windows install format
-- **MSI** (`DSH Life Assistant_1.0.0_x64_en-US.msi`) — alternative installer format
+- **NSIS installer** (`DSH Life Assistant_1.0.1_x64-setup.exe`) — the recommended Windows install format
+- **MSI** (`DSH Life Assistant_1.0.1_x64_en-US.msi`) — alternative installer format
 
 ## Environment
 

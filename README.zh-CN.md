@@ -10,7 +10,7 @@
 
 ## 今天可以做什么
 
-以下全部为 v1.0.0 中真实发布的能力——都由 Chinook Music 领域支撑。
+以下全部为 v1.0.1 中真实发布的能力——都由 Chinook Music 领域支撑。
 
 - **音乐目录搜索** — 跨目录查找艺人、专辑与曲目
 - **音乐推荐** — 相似专辑与流派热度，全部基于真实数据
@@ -207,8 +207,8 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 
 安装包输出到 `apps/desktop/src-tauri/target/release/bundle/`：
 
-- **NSIS 安装包**（`DSH Life Assistant_1.0.0_x64-setup.exe`）— Windows 推荐安装方式
-- **MSI**（`DSH Life Assistant_1.0.0_x64_en-US.msi`）— 备选安装格式
+- **NSIS 安装包**（`DSH Life Assistant_1.0.1_x64-setup.exe`）— Windows 推荐安装方式
+- **MSI**（`DSH Life Assistant_1.0.1_x64_en-US.msi`）— 备选安装格式
 
 ## 环境
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-life-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "DSH Life Assistant — an extensible personal AI assistant built on DeepSeek Harness (DSH). Chinook Music is the first implemented domain (CLI + Windows desktop).",
