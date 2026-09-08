@@ -19,6 +19,9 @@ scripts/evidence-trace.ts
 .packtest-home*/
 .packtest-home/
 
+# Internal prompt/process docs kept locally only (never pushed)
+.local-docs/
+
 # Desktop V2
 apps/desktop/dist/
 apps/desktop/src-tauri/target/
