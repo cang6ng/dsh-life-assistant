@@ -3,11 +3,21 @@ node_modules/
 data/memory.db
 data/memory.db-*
 *.tsbuildinfo
+*.log
 plugins/chinook/lib/
 tmp/
 .env
 .env.*
 !.env.example
+
+# One-off acceptance-time probes (kept locally, not shipped)
+scripts/smoke-boot.ts
+scripts/bridge-live-smoke.ts
+scripts/evidence-trace.ts
+
+# pack-smoke scratch homes
+.packtest-home*/
+.packtest-home/
 
 # Desktop V2
 apps/desktop/dist/

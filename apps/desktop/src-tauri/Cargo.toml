@@ -1,6 +1,6 @@
 [package]
 name = "chinook-desktop"
-version = "0.2.0"
+version = "1.0.0"
 description = "DSH Chinook Desktop V2 — Windows desktop presentation of the DSH Chinook Agent (window/lifecycle/sidecar only, never business logic)"
 edition = "2021"
 

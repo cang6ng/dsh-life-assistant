@@ -1,6 +1,6 @@
 {
   "name": "chinook-dsh-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "DSH Chinook Agent V1 - Chinook Music Store agent on the DSH runtime (Generic Runtime + Business Plugin + Thin CLI)",
