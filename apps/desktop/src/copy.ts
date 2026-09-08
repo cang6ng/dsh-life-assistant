@@ -3,7 +3,8 @@
  * used verbatim everywhere. Tool rows read per-tool verbs from toolMeta.ts.
  */
 export const copy = {
-  "app.title": "Chinook Agent",
+  "app.title": "DSH Life Assistant",
+  "app.domain": "Chinook Music",
   "empty.headline": "今天想听点什么？",
   "empty.sub": "搜索音乐、获取推荐，或者查看你在 Chinook 的订单。数据来自真实目录，回答由 AI 助手一步步完成。",
   "empty.chip.queen": "帮我找 Queen 的专辑",
@@ -58,7 +59,7 @@ export const copy = {
   "status.restarting": "正在重新启动…",
   "status.busy": "Agent 正在回答…",
   "status.model": "deepseek-v4-flash · 会话已自动保存",
-  "card.starting.title": "正在启动 Chinook Agent…",
+  "card.starting.title": "正在启动 DSH Life Assistant…",
   "card.disconnected.title": "Agent Runtime 已断开",
   "card.disconnected.sub": "与 Agent 的连接意外中断。你的会话已保存在本机，不会丢失。",
   "card.disconnected.action": "重新连接",
@@ -77,7 +78,7 @@ export const copy = {
   "err.turn.unknown": "未知错误",
   // §23.4: announced prefix for the once-announced error line `出了错：{caption}`.
   "err.announce": "出了错：",
-  "provenance.assistant": "Chinook",
+  "provenance.assistant": "Chinook Music",
 } as const;
 
 export type CopyKey = keyof typeof copy;

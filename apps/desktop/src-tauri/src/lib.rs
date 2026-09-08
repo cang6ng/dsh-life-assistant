@@ -1,4 +1,4 @@
-//! DSH Chinook Desktop V2 — Rust host entry (contract §18/§40–§43).
+//! DSH Life Assistant — Rust host entry: window, lifecycle, and the agent sidecar.
 //!
 //! Window, lifecycle, sidecar spawn, paths and env only. The Node Agent
 //! Bridge owns the AgentRuntime; React owns the UI; business logic lives in
@@ -33,7 +33,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building the DSH Chinook desktop host");
+        .expect("error while building the DSH Life Assistant desktop host");
 
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {

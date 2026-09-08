@@ -1,7 +1,7 @@
 [package]
 name = "chinook-desktop"
 version = "1.0.0"
-description = "DSH Chinook Desktop V2 — Windows desktop presentation of the DSH Chinook Agent (window/lifecycle/sidecar only, never business logic)"
+description = "DSH Life Assistant — Windows desktop presentation of the personal agent (window/lifecycle/sidecar only, never business logic); Chinook Music is the current domain"
 edition = "2021"
 
 [lib]

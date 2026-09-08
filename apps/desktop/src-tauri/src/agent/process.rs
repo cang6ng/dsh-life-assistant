@@ -582,7 +582,7 @@ mod tests {
         // tauri's resource_dir() on Windows may return `\\?\C:\...` extended
         // paths; node mis-parses those (the drive letter alone survives), so
         // every path handed to the sidecar must be prefix-free.
-        let launch = packaged_launch(Path::new(r"\\?\C:\Program Files\DSH Chinook"));
+        let launch = packaged_launch(Path::new(r"\\?\C:\Program Files\DSH Life Assistant"));
         assert!(!launch.command.contains(r"\\?\"));
         assert!(!launch.args[0].contains(r"\\?\"));
         assert!(!launch.extra_env[0].1.contains(r"\\?\"));

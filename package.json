@@ -1,9 +1,9 @@
 {
-  "name": "chinook-dsh-agent",
+  "name": "dsh-life-assistant",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH Chinook Agent V1 - Chinook Music Store agent on the DSH runtime (Generic Runtime + Business Plugin + Thin CLI)",
+  "description": "DSH Life Assistant — an extensible personal AI assistant built on DeepSeek Harness (DSH). Chinook Music is the first implemented domain (CLI + Windows desktop).",
   "engines": {
     "node": ">=22"
   },

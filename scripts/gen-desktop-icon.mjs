@@ -1,7 +1,7 @@
 /**
- * Generates the DSH Chinook desktop app icon (1024×1024 RGBA PNG) with zero
- * dependencies — hand-rolled PNG writer. Warm Chinook orange circle on a
- * transparent canvas, matching the UI accent (UI Spec §22 Chinook Warm).
+ * Generates the desktop app icon (1024×1024 RGBA PNG) with zero
+ * dependencies — hand-rolled PNG writer. Warm orange circle on a
+ * transparent canvas, matching the UI accent.
  *
  * Usage: node scripts/gen-desktop-icon.mjs [out.png]
  */

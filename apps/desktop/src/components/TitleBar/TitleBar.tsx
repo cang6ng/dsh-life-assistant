@@ -52,6 +52,15 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground1,
     whiteSpace: "nowrap",
   },
+  domain: {
+    fontSize: "12px",
+    fontWeight: 400,
+    color: tokens.colorNeutralForeground3,
+    whiteSpace: "nowrap",
+  },
+  domainSeparator: {
+    color: tokens.colorNeutralForeground4,
+  },
   spacer: {
     flex: "1 1 auto",
     alignSelf: "stretch",
@@ -157,6 +166,10 @@ export function TitleBar() {
       <div className={styles.brand} data-tauri-drag-region>
         <span className={styles.dot} aria-hidden="true" />
         <span className={styles.title}>{copy["app.title"]}</span>
+        <span className={styles.domainSeparator} aria-hidden="true">
+          ·
+        </span>
+        <span className={styles.domain}>{copy["app.domain"]}</span>
       </div>
       <RuntimeStatusBadge status={state.runtime.status} />
       <div className={styles.spacer} data-tauri-drag-region />
