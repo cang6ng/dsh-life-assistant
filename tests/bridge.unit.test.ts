@@ -72,14 +72,17 @@ function toolCall(turn: number, callId: string, name: string, argsJson: string, 
 }
 
 function toolResultText(turn: number, callId: string, payloadText: string, at: number, error?: unknown): SessionEvent {
+  // Real dsh shape (dsh-agent-loop appendToolResult): the event data carries
+  // NO top-level callId — the tool-result message owns it via `source.callId`
+  // and the content block's `toolCallId`.
   return eventOf(
     "tool/result",
     {
       turn,
       step: 1,
-      callId,
       message: {
         role: "tool",
+        source: { kind: "tool", callId },
         content: [
           { type: "tool-result", toolCallId: callId, content: [{ type: "text", text: payloadText }] },
         ],

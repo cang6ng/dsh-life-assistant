@@ -15,10 +15,17 @@ import { describe, expect, it } from "vitest";
 const REPO = join(import.meta.dirname, "..");
 const PLUGIN_SRC = join(REPO, "plugins", "chinook", "src");
 
+/** Repo-authored directories never scanned: third-party / generated trees
+ * (the packaged runtime node_modules, cargo target, vite dist) are build
+ * artifacts, not code this repo authors — and they carry vendor .ts sources
+ * whose strings are not "repo machinery". */
+const GENERATED_DIRS = new Set(["node_modules", "target", "dist"]);
+
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    if (GENERATED_DIRS.has(entry)) continue;
     if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
     else if (entry.endsWith(".ts")) out.push(full);
   }

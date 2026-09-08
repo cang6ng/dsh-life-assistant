@@ -4,21 +4,33 @@
  * /new → persist → /resume → close lifecycle works. Fully offline: no LLM
  * call is made (sessions are created and drained, never prompted).
  *
- * Requires a bootstrapped home (`pnpm bootstrap` — the pretest hook runs it).
+ * Isolation: the runtime binds `$DSH_HOME` when cli/runtime is imported
+ * (module scope), so this suite provisions its own throwaway home and sets
+ * the env BEFORE the dynamic import — it never reads or writes the
+ * repository `.dsh`. (Vitest's forks pool runs each test file in its own
+ * worker process, so the env assignment cannot leak across files.)
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createAgentRuntime, type AgentRuntime } from "../apps/cli/src/runtime";
+import type { AgentRuntime } from "../apps/cli/src/runtime";
+import { cleanupTestHome, provisionTestHome } from "./helpers/test-home";
 
 describe("agent runtime lifecycle (offline)", () => {
   let runtime: AgentRuntime | undefined;
+  let home: string | undefined;
 
   beforeAll(async () => {
+    home = provisionTestHome();
+    process.env.DSH_HOME = home; // suite-local home; must precede the runtime import
+    const { createAgentRuntime } = await import("../apps/cli/src/runtime");
     runtime = await createAgentRuntime();
   }, 60_000);
 
   afterAll(async () => {
     await runtime?.dispose();
+    delete process.env.DSH_HOME;
+    cleanupTestHome(home);
+    home = undefined;
   }, 30_000);
 
   it("/new: creates a fresh session that persists and lists newest-first", async () => {

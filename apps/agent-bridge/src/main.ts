@@ -41,8 +41,10 @@ import { createJsonlWriter, createLineReader, decodeJsonLine, logStderr } from "
 import { deriveTitle, TitleIndex } from "./title-index.js";
 import { buildConversationSnapshot } from "./session-adapter.js";
 import { sessionEventToPresentation, ToolCallRegistry } from "./runtime-adapter.js";
-import { provisionHomeIfNeeded } from "./home.js";
+import { ensureProvisionedHome, provisionHomeIfNeeded } from "./home.js";
 import { resolveDshHome } from "./env.js";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 interface LedgerEntry {
   title: string;
@@ -119,6 +121,9 @@ export class AgentBridge {
     this.setStatus("starting");
     try {
       provisionHomeIfNeeded();
+      // Every launch (packaged homes only): profile-bundle junctions the
+      // dsh heal does not mirror (§43/§45 packaged resource wiring).
+      ensureProvisionedHome();
     } catch (error) {
       this.log(`home provisioning failed: ${String(error)}`);
     }
@@ -506,8 +511,11 @@ export class AgentBridge {
 
 function isMain(argv1: string | undefined): boolean {
   if (argv1 === undefined) return false;
-  const a = argv1.replaceAll("\\", "/");
-  return a.endsWith("apps/agent-bridge/src/main.ts") || a.endsWith("agent-bridge/dist/bridge.mjs");
+  // Location-independent: run only when executed directly (dev bundle path
+  // OR the packaged `runtime/bridge/bridge.mjs` copy), never when the module
+  // is imported by tests/hosts. Resolved paths avoid symlink/cwd surprises.
+  const self = fileURLToPath(import.meta.url).replaceAll("\\", "/");
+  return resolve(argv1).replaceAll("\\", "/") === self;
 }
 
 async function runMain(): Promise<void> {

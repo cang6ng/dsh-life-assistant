@@ -243,9 +243,9 @@ function createJsonlWriter(stdout) {
 }
 function createLineReader(input) {
   const rl = createInterface({ input, crlfDelay: Infinity });
-  const closed = new Promise((resolve5) => {
-    rl.once("close", () => resolve5());
-    rl.once("error", () => resolve5());
+  const closed = new Promise((resolve6) => {
+    rl.once("close", () => resolve6());
+    rl.once("error", () => resolve6());
   });
   return {
     onLine(cb) {
@@ -426,8 +426,12 @@ function sessionEventToPresentation(event, ctx) {
     case "tool/result": {
       if (turn === void 0) return [];
       const result = data;
-      if (typeof result.callId !== "string") return [];
-      const reg = ctx.registry.resolve(turn, result.callId);
+      const msg = result.message;
+      const contentBlock = Array.isArray(msg?.content) ? msg.content[0] : void 0;
+      const nestedCallId = msg?.source?.callId ?? contentBlock?.toolCallId;
+      const callId = typeof result.callId === "string" ? result.callId : typeof nestedCallId === "string" ? nestedCallId : void 0;
+      if (typeof callId !== "string") return [];
+      const reg = ctx.registry.resolve(turn, callId);
       const name = reg?.name ?? "tool";
       const durationMs = reg !== void 0 ? Math.max(0, ts - reg.at) : 0;
       const payloadText = toolResultPayloadText(result.message);
@@ -452,7 +456,7 @@ function sessionEventToPresentation(event, ctx) {
         type: "tool/result",
         data: {
           turnId: turn,
-          tool: { name, callId: result.callId, durationMs, ok, error, result: finalResult }
+          tool: { name, callId, durationMs, ok, error, result: finalResult }
         },
         seq: event.seq,
         ts
@@ -752,8 +756,8 @@ function assistantStatusFor(frame) {
 }
 
 // apps/agent-bridge/src/home.ts
-import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync2, readdirSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join5, resolve as resolve4 } from "node:path";
+import { cpSync, existsSync as existsSync4, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readdirSync, symlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname2, join as join5, resolve as resolve4 } from "node:path";
 
 // apps/agent-bridge/src/env.ts
 import { existsSync as existsSync3 } from "node:fs";
@@ -778,6 +782,36 @@ function homeTemplateDir() {
   const base = bootResourcesDir();
   return base === null ? null : resolve4(base, TEMPLATE_DIRNAME);
 }
+function linkProfileBundleFallbacks() {
+  const base = bootResourcesDir();
+  const home = resolveDshHome();
+  if (base === null) return;
+  const fallbackDir = join5(home, "profiles", "node_modules");
+  const runtimeModules = join5(base, "node_modules");
+  const profileDir = join5(home, "profiles", "chinook");
+  if (!existsSync4(profileDir) || !existsSync4(runtimeModules)) return;
+  let bundles;
+  try {
+    bundles = JSON.parse(readFileSync2(join5(profileDir, "package.json"), "utf8")).dsh?.profile?.bundles ?? [];
+  } catch {
+    return;
+  }
+  if (bundles.length === 0) return;
+  mkdirSync2(fallbackDir, { recursive: true });
+  for (const name of bundles) {
+    const link = join5(fallbackDir, ...name.split("/"));
+    if (existsSync4(link)) continue;
+    const source = join5(runtimeModules, ...name.split("/"));
+    if (!existsSync4(source)) continue;
+    try {
+      mkdirSync2(dirname2(link), { recursive: true });
+      symlinkSync(source, link, process.platform === "win32" ? "junction" : "dir");
+    } catch (error) {
+      process.stderr.write(`[bridge] profile bundle fallback link failed for ${name}: ${String(error)}
+`);
+    }
+  }
+}
 function provisionHomeIfNeeded() {
   const template = homeTemplateDir();
   const home = resolveDshHome();
@@ -794,8 +828,14 @@ function provisionHomeIfNeeded() {
   }
   writeFileSync2(marker, (/* @__PURE__ */ new Date()).toISOString(), "utf8");
 }
+function ensureProvisionedHome() {
+  if (homeTemplateDir() === null) return;
+  linkProfileBundleFallbacks();
+}
 
 // apps/agent-bridge/src/main.ts
+import { fileURLToPath } from "node:url";
+import { resolve as resolve5 } from "node:path";
 var AgentBridge = class {
   runtime = null;
   runtimeFactory;
@@ -849,6 +889,7 @@ var AgentBridge = class {
     this.setStatus("starting");
     try {
       provisionHomeIfNeeded();
+      ensureProvisionedHome();
     } catch (error) {
       this.log(`home provisioning failed: ${String(error)}`);
     }
@@ -1196,8 +1237,8 @@ var AgentBridge = class {
 };
 function isMain(argv1) {
   if (argv1 === void 0) return false;
-  const a = argv1.replaceAll("\\", "/");
-  return a.endsWith("apps/agent-bridge/src/main.ts") || a.endsWith("agent-bridge/dist/bridge.mjs");
+  const self = fileURLToPath(import.meta.url).replaceAll("\\", "/");
+  return resolve5(argv1).replaceAll("\\", "/") === self;
 }
 async function runMain() {
   const writer = createJsonlWriter(process.stdout);

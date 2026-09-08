@@ -166,8 +166,19 @@ export function sessionEventToPresentation(
     case "tool/result": {
       if (turn === undefined) return [];
       const result = data as { callId?: unknown; message?: unknown; error?: unknown };
-      if (typeof result.callId !== "string") return [];
-      const reg = ctx.registry.resolve(turn, result.callId);
+      // The dsh event data carries no top-level callId: the tool-result
+      // message owns it (`message.source.callId`, mirrored on
+      // `content[0].toolCallId`). Fall back to a top-level callId only for
+      // synthetic events.
+      const msg = result.message as { source?: { callId?: unknown }; content?: unknown[] } | undefined;
+      const contentBlock = (Array.isArray(msg?.content) ? msg.content[0] : undefined) as
+        | { toolCallId?: unknown }
+        | undefined;
+      const nestedCallId = (msg?.source as { callId?: unknown } | undefined)?.callId ?? contentBlock?.toolCallId;
+      const callId =
+        typeof result.callId === "string" ? result.callId : typeof nestedCallId === "string" ? nestedCallId : undefined;
+      if (typeof callId !== "string") return [];
+      const reg = ctx.registry.resolve(turn, callId);
       const name = reg?.name ?? "tool";
       const durationMs = reg !== undefined ? Math.max(0, ts - reg.at) : 0;
       const payloadText = toolResultPayloadText(result.message);
@@ -195,7 +206,7 @@ export function sessionEventToPresentation(
         type: "tool/result",
         data: {
           turnId: turn,
-          tool: { name, callId: result.callId, durationMs, ok, error, result: finalResult },
+          tool: { name, callId, durationMs, ok, error, result: finalResult },
         },
         seq: event.seq,
         ts,

@@ -1,0 +1,17 @@
+[package]
+name = "chinook-desktop"
+version = "0.2.0"
+description = "DSH Chinook Desktop V2 — Windows desktop presentation of the DSH Chinook Agent (window/lifecycle/sidecar only, never business logic)"
+edition = "2021"
+
+[lib]
+name = "chinook_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
