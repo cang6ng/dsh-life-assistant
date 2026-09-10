@@ -22,6 +22,7 @@
 - **可见的 Tool 活动** — 每一次 Tool 调用都实时展示，而不是藏在模型内部
 - **桌面 Activity Drawer（活动抽屉）** — 完整可查的 Agent 运行轨迹：模型回合、Tool 调用、耗时
 - **Sidecar 崩溃恢复** — Agent 进程被守护，崩溃后自动重启并重连会话
+- **应用内模型端点配置** — 指向任意 OpenAI 兼容端点（Base URL、API Key、模型名称）并测试连接，无需接触环境变量 *（已在 `main`，随下一个安装包发布）*
 
 ## 当前领域 — Chinook Music
 
@@ -117,7 +118,7 @@ Tools / SQLite / Memory
 
 ## 桌面体验
 
-桌面应用包装了与最初 CLI 相同的 Agent 核心。首页为对话视图，带一条实时活动条：Agent 工作时，你能看到当前步骤（模型回合、Tool 调用、Tool 结果），回复实时流式呈现。标题栏同时展示产品名（**DSH Life Assistant**）与当前领域（**Chinook Music**）。**Activity Drawer（活动抽屉）** 保存每次运行的完整轨迹。侧边栏列出持久化会话，包括可恢复的历史会话。Agent 作为应用管控下的子 Node 进程运行——若崩溃会被自动重启并重连会话。
+桌面应用包装了与最初 CLI 相同的 Agent 核心。首页为对话视图，带一条实时活动条：Agent 工作时，你能看到当前步骤（模型回合、Tool 调用、Tool 结果），回复实时流式呈现。标题栏同时展示产品名（**DSH Life Assistant**）与当前领域（**Chinook Music**）。**Activity Drawer（活动抽屉）** 保存每次运行的完整轨迹。侧边栏列出持久化会话，包括可恢复的历史会话。Agent 作为应用管控下的子 Node 进程运行——若崩溃会被自动重启并重连会话。标题栏的 **设置** 面板可在应用内配置模型端点（Base URL、API Key、模型名称，见[首次运行](#首次运行配置模型端点)）；密钥单向写入本机凭据库，不会回显。
 
 ## 技术栈
 
@@ -210,9 +211,22 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 - **NSIS 安装包**（`DSH Life Assistant_1.0.1_x64-setup.exe`）— Windows 推荐安装方式
 - **MSI**（`DSH Life Assistant_1.0.1_x64_en-US.msi`）— 备选安装格式
 
-## 首次运行：配置 API Key
+## 首次运行：配置模型端点
 
-当前 v1.0.1 暂未提供应用内 API Key 设置界面。首次使用前，请先把 DeepSeek API Key 配置为 **Windows 用户环境变量**：
+应用内置设置面板，全新安装无需接触 Windows 环境变量即可指向任意模型端点。
+
+1. 启动应用，点击标题栏的 **设置**（齿轮）图标。它在任何运行状态下都存在——包括错误卡片，错误卡片上也有一个 **模型设置** 按钮。
+2. 填写三个字段：
+   - **Base URL** — 任意 OpenAI 兼容端点，例如 `https://api.deepseek.com`。只需填到域名（或 `/v1`），末尾的 `/chat/completions` 会被自动去掉。留空表示使用端点自带默认值。
+   - **API Key** — 由你所指向的网关签发（可在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建）。该字段每次打开面板都是空的，且值永不回显：密钥写入应用本机凭据库（`%APPDATA%\com.dsh.chinook\agent\.credentials.yaml`，仅所有者可读），界面只显示*是否*已配置密钥以及来自哪一层。留空表示保持已保存的密钥。
+   - **模型名称** — 原样发送给端点。
+3. 点击 **保存并测试连接**。端点、凭据与模型会被保存，然后用一次最小的真实请求验证，结果以中文呈现——密钥被拒绝、模型不存在、地址无法连接等。保存后的模型对下一条消息立即生效，无需重启。
+
+该面板位于 `main`，尚未包含在 v1.0.1 安装包中；使用该版本请走下面的环境变量方式。
+
+### 进阶 / CI：环境变量方式
+
+将 `DEEPSEEK_API_KEY` 配置为 **Windows 用户环境变量**，然后**完全退出并重新打开**应用（环境变量只在应用启动时读取；若仍未生效，请重新登录一次 Windows 后再启动）：
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
@@ -222,9 +236,11 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 )
 ```
 
-API Key 可在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建。配置完成后，**完全退出并重新打开 DSH Life Assistant**——环境变量只在应用启动时读取。如果应用仍未读取到新变量，请重新登录一次 Windows 后再启动。
+兼容环境下 Runtime 也支持 `ANTHROPIC_AUTH_TOKEN`，但它仅在 `DEEPSEEK_API_KEY` 未设置时作为后备。
 
-兼容环境下 Runtime 也支持 `ANTHROPIC_AUTH_TOKEN`，但它仅在 `DEEPSEEK_API_KEY` 未设置时作为后备。请勿将真实密钥写入源码、README 或提交到 Git——README 与提交历史都是公开的。
+**优先级：启动环境中的变量永远优先于应用内设置。** 当应用启动时已带有上述变量，其凭据库会拒绝覆盖该密钥——面板会如实显示为 只读（*由启动环境提供*），密钥输入框被禁用，并写明原因，而不是让保存静默地什么都不做。要改为在应用内管理密钥，请移除该环境变量后重启应用。
+
+请勿将真实密钥写入源码、README 或提交到 Git——README 与提交历史都是公开的。
 
 ## 环境
 
@@ -237,6 +253,8 @@ API Key 可在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建。
 
 完整说明见 `.env.example`。`CHINOOK_CUSTOMER_ID` 未设置或无效即为匿名——订单、发票与记忆 Tool 会返回 `IDENTITY_REQUIRED`。
 
+在此处配置的凭据优先级高于应用内设置；面板会将其显示为只读（见[首次运行](#首次运行配置模型端点)）。
+
 ## 开发
 
 ```bash
@@ -248,7 +266,7 @@ pnpm chinook-agent     # 在 CLI REPL 中运行 Agent
 
 ## 测试 / 构建
 
-- `pnpm test` — Vitest：12 个套件 / 128 个测试，覆盖插件服务、Tool、记忆、桥（单元 + 集成）、Agent e2e、桌面 reducer 与架构不变量
+- `pnpm test` — Vitest：14 个套件 / 177 个测试，覆盖插件服务、Tool、记忆、桥（单元 + 集成，含配置面）、Agent e2e、桌面 reducer/表单辅助与架构不变量
 - `cd apps/desktop/src-tauri && cargo test` — Rust 宿主测试
 - `pnpm build` — workspace 类型检查 + 插件编译；Tauri 生产构建会执行前端构建与 Rust release 构建，产出上面的 NSIS/MSI 安装包
 
@@ -275,7 +293,7 @@ pnpm chinook-agent     # 在 CLI REPL 中运行 Agent
 - **Windows-first**：桌面应用在 Windows 11 上构建并验证；其他平台尚未覆盖
 - **演示身份而非认证**：v1 使用本地演示身份（`CHINOOK_CUSTOMER_ID`）；未实现生产级认证
 - **单用户、本地化**：数据存放在本机；没有服务端、云端或多用户模式
-- **需要可用的模型凭据**：对话依赖上面环境变量配置的可达模型端点
+- **需要可用的模型凭据**：对话依赖应用内设置面板或上面环境变量配置的可达模型端点
 - **未签名安装包**：NSIS/MSI 未做代码签名，首次运行 Windows SmartScreen 可能告警
 - **仅安装版，无独立便携 exe**：桌面可执行文件随运行时资源一起分装在安装包内，未验证可脱离资源独立运行
 - **演示数据**：业务数据是公开 Chinook 示例商店，不是真实生产后端

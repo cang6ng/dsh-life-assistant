@@ -22,6 +22,7 @@ Everything below is real and shipped in v1.0.1 — all of it powered by the Chin
 - **Visible Tool Activity** — every tool call is surfaced live, not hidden inside the model
 - **Desktop Activity Drawer** — a full, inspectable trace of the agent run: model turns, tool calls, timings
 - **Sidecar restart recovery** — the agent process is watched, restarted and reconnected automatically
+- **In-app model endpoint configuration** — point the app at any OpenAI-compatible endpoint (base URL, API key, model name) and test the connection, without touching environment variables *(on `main`, in the next installer)*
 
 ## Current Domain — Chinook Music
 
@@ -117,7 +118,7 @@ These are the seven tools currently provided by the Chinook Music domain:
 
 ## Desktop Experience
 
-The desktop app wraps the same agent core as the original CLI. The home screen is a chat view with a live activity strip: while the agent works you see the current step (model turn, tool call, tool result) and the reply streams in real time. The title bar shows the product (**DSH Life Assistant**) and the active domain (**Chinook Music**). The **Activity Drawer** holds the full trace of each run. The sidebar lists persistent sessions, including historical ones that can be restored. The agent runs as a child Node process under the app's control — if it crashes it is restarted automatically and the session reconnects.
+The desktop app wraps the same agent core as the original CLI. The home screen is a chat view with a live activity strip: while the agent works you see the current step (model turn, tool call, tool result) and the reply streams in real time. The title bar shows the product (**DSH Life Assistant**) and the active domain (**Chinook Music**). The **Activity Drawer** holds the full trace of each run. The sidebar lists persistent sessions, including historical ones that can be restored. The agent runs as a child Node process under the app's control — if it crashes it is restarted automatically and the session reconnects. The title-bar **设置** panel configures the model endpoint from inside the app (base URL, API key, model name — see [First Run](#first-run-configure-a-model-endpoint)); the key travels one way only, into the local credential store.
 
 ## Tech Stack
 
@@ -210,9 +211,22 @@ The installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 - **NSIS installer** (`DSH Life Assistant_1.0.1_x64-setup.exe`) — the recommended Windows install format
 - **MSI** (`DSH Life Assistant_1.0.1_x64_en-US.msi`) — alternative installer format
 
-## First Run: Configure an API Key
+## First Run: Configure a Model Endpoint
 
-DSH Life Assistant v1.0.1 does not yet provide an in-app API key settings screen. Before first use, configure your DeepSeek API key as a **Windows user environment variable**:
+The app has an in-app settings panel, so a fresh install can be pointed at a model endpoint without touching Windows environment variables.
+
+1. Launch the app and click the **设置** (gear) icon in the title bar. It is present in every runtime state — including the error card, which offers a **模型设置** button of its own.
+2. Fill in three fields:
+   - **Base URL** — any OpenAI-compatible endpoint, e.g. `https://api.deepseek.com`. Give only the domain (or up to `/v1`); a trailing `/chat/completions` is stripped for you. Leave it empty to use the endpoint's built-in default.
+   - **API Key** — issued by whichever gateway you point at (create one at the [DeepSeek open platform](https://platform.deepseek.com/)). The field starts empty every time the panel opens and its value is never read back: the key is written to the app's local credential store (`%APPDATA%\com.dsh.chinook\agent\.credentials.yaml`, owner-only) and the panel only ever reports *whether* a key resolves and from which layer. Leave it empty to keep the stored key.
+   - **模型名称** — sent verbatim to the endpoint.
+3. Click **保存并测试连接**. The endpoint, credential and model are saved, then exercised with one minimal real request, and the outcome is reported in Chinese — a rejected key, an unknown model, an unreachable host. A saved model applies to your next message; no restart is needed.
+
+The panel is on `main` and is not in the v1.0.1 installer — on that build, use the environment-variable route below.
+
+### Advanced / CI: the environment-variable route
+
+Set `DEEPSEEK_API_KEY` as a **Windows user environment variable**, then **fully quit and reopen** the app (the variable is only read at startup; if it is still not picked up, sign out and back into Windows once):
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
@@ -222,9 +236,11 @@ DSH Life Assistant v1.0.1 does not yet provide an in-app API key settings screen
 )
 ```
 
-Create the key at the [DeepSeek open platform](https://platform.deepseek.com/). After configuring it, **fully quit and reopen DSH Life Assistant** — the variable is only read when the app starts. If the app still does not pick it up, sign out and back into Windows once, then start it again.
+In compatible environments the runtime also accepts `ANTHROPIC_AUTH_TOKEN`, but only as a fallback when `DEEPSEEK_API_KEY` is unset.
 
-The runtime also accepts `ANTHROPIC_AUTH_TOKEN` in compatible environments, but only as a fallback when `DEEPSEEK_API_KEY` is unset. Never commit real API keys to this repository — README files and commit history are public.
+**Precedence: an inherited environment variable always wins over the in-app setting.** When the app is launched with one of those variables already set, its credential store refuses to overwrite that key — so the panel reports 只读 (*supplied by the launching environment*), the key field is disabled, and the reason is spelled out rather than a save silently doing nothing. Remove the variable and restart to manage the key from the app.
+
+Never commit real API keys to this repository — README files and commit history are public.
 
 ## Environment
 
@@ -237,6 +253,8 @@ The runtime also accepts `ANTHROPIC_AUTH_TOKEN` in compatible environments, but 
 
 Full set with comments: `.env.example`. Unset or invalid `CHINOOK_CUSTOMER_ID` means anonymous — order, invoice and memory tools answer `IDENTITY_REQUIRED`.
 
+Credentials set here outrank the in-app setting; the panel reports them as read-only (see [First Run](#first-run-configure-a-model-endpoint)).
+
 ## Development
 
 ```bash
@@ -248,7 +266,7 @@ Development runs keep the DSH home in `<repo>/.dsh`. The packaged desktop app cr
 
 ## Testing / Build
 
-- `pnpm test` — Vitest: 12 suites / 128 tests covering plugin services, tools, memory, the bridge (unit + integration), agent e2e, desktop reducers and architecture invariants
+- `pnpm test` — Vitest: 14 suites / 177 tests covering plugin services, tools, memory, the bridge (unit + integration, including the configuration surface), agent e2e, desktop reducers/form helpers and architecture invariants
 - `cd apps/desktop/src-tauri && cargo test` — Rust host tests
 - `pnpm build` — workspace type-check + plugin compile; the Tauri production build runs the frontend build and Rust release build, producing the NSIS/MSI installers above
 
@@ -275,7 +293,7 @@ Future domains may include personal finance, calendars, tasks, and other user-au
 - **Windows-first**: the desktop app is built and verified on Windows 11; other platforms are not yet covered
 - **Demo identity, not authentication**: v1 uses a local demo identity (`CHINOOK_CUSTOMER_ID`); production-grade authentication is not implemented
 - **Single-user and local**: data lives on the local machine; there is no server, cloud or multi-user mode
-- **Requires live model credentials**: conversations need a reachable model endpoint configured via the environment variables above
+- **Requires live model credentials**: conversations need a reachable model endpoint configured in the in-app settings panel or via the environment variables above
 - **Unsigned installers**: NSIS/MSI packages are not code-signed, so Windows SmartScreen may warn on first run
 - **Installed app only, no standalone portable exe**: the desktop executable is distributed with its runtime resources inside the installers and has not been validated to run standalone
 - **Demonstration data**: the business data is the public Chinook sample store, not a real production backend
