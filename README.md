@@ -10,7 +10,7 @@ The current release ships with **Chinook Music**, the first complete domain impl
 
 ## What it can do today
 
-Everything below is real and shipped in v1.0.1 — all of it powered by the Chinook Music domain.
+Everything below is real and shipped in v1.0.2 — all of it powered by the Chinook Music domain.
 
 - **Music catalog search** — find artists, albums and tracks across the catalog
 - **Music recommendation** — similar albums and genre popularity, grounded in real data
@@ -22,7 +22,7 @@ Everything below is real and shipped in v1.0.1 — all of it powered by the Chin
 - **Visible Tool Activity** — every tool call is surfaced live, not hidden inside the model
 - **Desktop Activity Drawer** — a full, inspectable trace of the agent run: model turns, tool calls, timings
 - **Sidecar restart recovery** — the agent process is watched, restarted and reconnected automatically
-- **In-app model endpoint configuration** — point the app at any OpenAI-compatible endpoint (base URL, API key, model name), pick the model from the endpoint's own list, and test the connection, without touching environment variables *(on `main`, in the next installer)*
+- **In-app model endpoint configuration** — point the app at any OpenAI-compatible endpoint (base URL, API key, model name), pick the model from the endpoint's own list, and test the connection, without touching environment variables
 
 ## Current Domain — Chinook Music
 
@@ -208,8 +208,8 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 
 The installers land in `apps/desktop/src-tauri/target/release/bundle/`:
 
-- **NSIS installer** (`DSH Life Assistant_1.0.1_x64-setup.exe`) — the recommended Windows install format
-- **MSI** (`DSH Life Assistant_1.0.1_x64_en-US.msi`) — alternative installer format
+- **NSIS installer** (`DSH Life Assistant_1.0.2_x64-setup.exe`) — the recommended Windows install format
+- **MSI** (`DSH Life Assistant_1.0.2_x64_en-US.msi`) — alternative installer format
 
 ## First Run: Configure a Model Endpoint
 
@@ -222,7 +222,7 @@ The app has an in-app settings panel, so a fresh install can be pointed at a mod
    - **模型名称** — sent verbatim to the endpoint. Click **获取模型** beside the field to ask the Base URL which models it serves (`GET {baseUrl}/models`, the OpenAI-compatible standard) and pick from a clickable list — the ids a third-party gateway expects are rarely guessable. Not every endpoint implements `/models`; when yours does not, the panel says so and the field stays free text.
 3. Click **保存并测试连接**. The endpoint, credential and model are saved, then exercised with one minimal real request, and the outcome is reported in Chinese — a rejected key, an unknown model, an unreachable host. A saved model applies to your next message; no restart is needed.
 
-The panel is on `main` and is not in the v1.0.1 installer — on that build, use the environment-variable route below.
+The panel is part of v1.0.2; on an older build, use the environment-variable route below.
 
 ### Advanced / CI: the environment-variable route
 
@@ -266,7 +266,7 @@ Development runs keep the DSH home in `<repo>/.dsh`. The packaged desktop app cr
 
 ## Testing / Build
 
-- `pnpm test` — Vitest: 14 suites / 177 tests covering plugin services, tools, memory, the bridge (unit + integration, including the configuration surface), agent e2e, desktop reducers/form helpers and architecture invariants
+- `pnpm test` — Vitest: 15 suites / 207 tests covering plugin services, tools, memory, the bridge (unit + integration, including the configuration surface and model listing), agent e2e, desktop reducers/form helpers and architecture invariants
 - `cd apps/desktop/src-tauri && cargo test` — Rust host tests
 - `pnpm build` — workspace type-check + plugin compile; the Tauri production build runs the frontend build and Rust release build, producing the NSIS/MSI installers above
 

@@ -10,7 +10,7 @@
 
 ## 今天可以做什么
 
-以下全部为 v1.0.1 中真实发布的能力——都由 Chinook Music 领域支撑。
+以下全部为 v1.0.2 中真实发布的能力——都由 Chinook Music 领域支撑。
 
 - **音乐目录搜索** — 跨目录查找艺人、专辑与曲目
 - **音乐推荐** — 相似专辑与流派热度，全部基于真实数据
@@ -22,7 +22,7 @@
 - **可见的 Tool 活动** — 每一次 Tool 调用都实时展示，而不是藏在模型内部
 - **桌面 Activity Drawer（活动抽屉）** — 完整可查的 Agent 运行轨迹：模型回合、Tool 调用、耗时
 - **Sidecar 崩溃恢复** — Agent 进程被守护，崩溃后自动重启并重连会话
-- **应用内模型端点配置** — 指向任意 OpenAI 兼容端点（Base URL、API Key、模型名称），从端点自己的模型列表中直接选择，并测试连接，无需接触环境变量 *（已在 `main`，随下一个安装包发布）*
+- **应用内模型端点配置** — 指向任意 OpenAI 兼容端点（Base URL、API Key、模型名称），从端点自己的模型列表中直接选择，并测试连接，无需接触环境变量
 
 ## 当前领域 — Chinook Music
 
@@ -208,8 +208,8 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
 
 安装包输出到 `apps/desktop/src-tauri/target/release/bundle/`：
 
-- **NSIS 安装包**（`DSH Life Assistant_1.0.1_x64-setup.exe`）— Windows 推荐安装方式
-- **MSI**（`DSH Life Assistant_1.0.1_x64_en-US.msi`）— 备选安装格式
+- **NSIS 安装包**（`DSH Life Assistant_1.0.2_x64-setup.exe`）— Windows 推荐安装方式
+- **MSI**（`DSH Life Assistant_1.0.2_x64_en-US.msi`）— 备选安装格式
 
 ## 首次运行：配置模型端点
 
@@ -222,7 +222,7 @@ node ../../node_modules/@tauri-apps/cli/tauri.js build
    - **模型名称** — 原样发送给端点。点击字段旁的 **获取模型** 会向 Base URL 询问它提供哪些模型（`GET {baseUrl}/models`，OpenAI 兼容标准），并从可点击列表中挑选——第三方网关期望的模型 id 往往猜不出来。并非所有端点都实现 `/models`；不支持时面板会说明原因，字段仍可手动输入。
 3. 点击 **保存并测试连接**。端点、凭据与模型会被保存，然后用一次最小的真实请求验证，结果以中文呈现——密钥被拒绝、模型不存在、地址无法连接等。保存后的模型对下一条消息立即生效，无需重启。
 
-该面板位于 `main`，尚未包含在 v1.0.1 安装包中；使用该版本请走下面的环境变量方式。
+该面板已随 v1.0.2 发布；使用更早的安装包时请走下面的环境变量方式。
 
 ### 进阶 / CI：环境变量方式
 
@@ -266,7 +266,7 @@ pnpm chinook-agent     # 在 CLI REPL 中运行 Agent
 
 ## 测试 / 构建
 
-- `pnpm test` — Vitest：14 个套件 / 177 个测试，覆盖插件服务、Tool、记忆、桥（单元 + 集成，含配置面）、Agent e2e、桌面 reducer/表单辅助与架构不变量
+- `pnpm test` — Vitest：15 个套件 / 207 个测试，覆盖插件服务、Tool、记忆、桥（单元 + 集成，含配置面与模型列表）、Agent e2e、桌面 reducer/表单辅助与架构不变量
 - `cd apps/desktop/src-tauri && cargo test` — Rust 宿主测试
 - `pnpm build` — workspace 类型检查 + 插件编译；Tauri 生产构建会执行前端构建与 Rust release 构建，产出上面的 NSIS/MSI 安装包
 
