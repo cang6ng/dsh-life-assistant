@@ -26,7 +26,7 @@
  * and at snapshot hydration; the disposable index lives at $DSH_HOME.
  */
 
-import { createAgentRuntime, type AgentRuntime } from "../../cli/src/runtime.js";
+import { createAgentRuntime, type AgentRuntime, type ApiConfigPatch } from "../../cli/src/runtime.js";
 import type { SessionEvent } from "@deepseek-ai/dsh-session";
 import {
   ERROR_CODES,
@@ -407,6 +407,82 @@ export class AgentBridge {
         }
         return;
       }
+
+      // ---- model-endpoint configuration (v1.0.2) ---------------------------
+      // Reading is ungated (the panel may load mid-turn); saving and probing
+      // are TURN_ACTIVE-guarded like session.create/open — flipping the
+      // endpoint under a streaming answer is exactly what those guards exist
+      // to prevent. Note what is logged: flags and reference names only, never
+      // a value from `req.data` (the key travels in that payload).
+
+      case "config.get":
+        try {
+          respond("config.describe", await this.rt.readApiConfig());
+        } catch (error) {
+          this.log(`config read failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `无法读取模型配置：${String(error)}`);
+        }
+        return;
+
+      case "config.save": {
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "当前回答进行中，无法修改模型配置");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent 尚未就绪，请重新启动后再试");
+          return;
+        }
+        const body = (req.data ?? {}) as {
+          baseUrl?: unknown;
+          model?: unknown;
+          apiKey?: unknown;
+          clearApiKey?: unknown;
+        };
+        const patch: ApiConfigPatch = {};
+        if (typeof body.baseUrl === "string") patch.baseUrl = body.baseUrl;
+        if (typeof body.model === "string") patch.model = body.model;
+        if (typeof body.apiKey === "string" && body.apiKey !== "") patch.apiKey = body.apiKey;
+        if (body.clearApiKey === true) patch.clearApiKey = true;
+        if (Object.keys(patch).length === 0) {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "没有需要保存的修改");
+          return;
+        }
+        try {
+          const result = await this.rt.saveApiConfig(patch);
+          // Refs and flags only — `patch.apiKey` holds a credential.
+          this.log(
+            `config save applied (baseUrl=${patch.baseUrl !== undefined}, model=${patch.model !== undefined}, ` +
+              `apiKey=${patch.apiKey !== undefined}, clearKey=${patch.clearApiKey === true})`,
+          );
+          respond("config.saved", result);
+        } catch (error) {
+          const message = String(error);
+          const code = message.includes("模型名称不能为空") || message.includes("API Key")
+            ? ERROR_CODES.INVALID_ARGUMENT
+            : ERROR_CODES.CONFIG_UNAVAILABLE;
+          this.log(`config save failed: ${message}`);
+          fail(code, `保存配置失败：${message}`);
+        }
+        return;
+      }
+
+      case "config.test":
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "当前回答进行中，无法测试连接");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent 尚未就绪，请重新启动后再试");
+          return;
+        }
+        try {
+          respond("config.tested", await this.rt.testApiConnection());
+        } catch (error) {
+          this.log(`connection test failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `无法测试连接：${String(error)}`);
+        }
+        return;
 
       default:
         fail(ERROR_CODES.UNKNOWN_REQUEST, `未知请求类型：${String(req.type)}`);

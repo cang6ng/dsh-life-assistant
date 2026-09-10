@@ -402,4 +402,43 @@ describe("desktop reducer — ui flags", () => {
     s = reducer(s, { type: "STRIP_TOGGLE", turnId: 3 });
     expect(s.ui.expandedTurnIds[3]).toBe(false);
   });
+
+  it("the settings overlay opens, closes and toggles without disturbing the drawer", () => {
+    // Start with the drawer open and the overlay closed, so the two flags are
+    // distinguishable at every step.
+    const base = reducer(INITIAL_STATE, { type: "DRAWER_TOGGLE" });
+    expect([base.ui.configOpen, base.ui.drawerOpen]).toEqual([false, true]);
+
+    const opened = reducer(base, { type: "CONFIG_OPEN" });
+    expect([opened.ui.configOpen, opened.ui.drawerOpen]).toEqual([true, true]);
+    // Closing is idempotent, and neither move touches the drawer.
+    expect(reducer(opened, { type: "CONFIG_CLOSE" }).ui).toMatchObject({ configOpen: false, drawerOpen: true });
+    expect(reducer(reducer(opened, { type: "CONFIG_CLOSE" }), { type: "CONFIG_CLOSE" }).ui.configOpen).toBe(false);
+
+    expect(reducer(base, { type: "CONFIG_TOGGLE" }).ui.configOpen).toBe(true);
+    expect(reducer(opened, { type: "CONFIG_TOGGLE" }).ui.configOpen).toBe(false);
+  });
+});
+
+describe("desktop reducer — model caption (§16.6, v1.0.2)", () => {
+  it("carries only a model id, and starts unset so the shell can fall back", () => {
+    expect(INITIAL_STATE.config).toBeNull();
+    const s = reducer(INITIAL_STATE, { type: "CONFIG_MODEL", model: "gpt-4o-mini" });
+    expect(s.config).toEqual({ model: "gpt-4o-mini" });
+    // A later read replaces it outright — there is no history to accumulate.
+    expect(reducer(s, { type: "CONFIG_MODEL", model: "deepseek-v4-flash" }).config).toEqual({
+      model: "deepseek-v4-flash",
+    });
+  });
+
+  it("never lets a turn or a session switch resurrect a stale model", () => {
+    const s = reducer(INITIAL_STATE, { type: "CONFIG_MODEL", model: "gpt-4o-mini" });
+    const afterOpen = reducer(s, {
+      type: "SESSION_OPENED",
+      session: SESSION_A,
+      items: [],
+      log: [],
+    });
+    expect(afterOpen.config).toEqual({ model: "gpt-4o-mini" });
+  });
 });

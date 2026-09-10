@@ -19,6 +19,7 @@ import { SessionSidebar } from "../SessionSidebar/SessionSidebar";
 import { ConversationView } from "../ConversationView/ConversationView";
 import { RuntimeStateCard, type RuntimeCardVariant } from "../RuntimeStateCard/RuntimeStateCard";
 import { ActivityDrawer } from "../ActivityDrawer/ActivityDrawer";
+import { ApiConfigPanel } from "../ApiConfig/ApiConfigPanel";
 
 const NARROW_QUERY = "(max-width: 899px)"; // §22 content-width threshold
 
@@ -28,6 +29,9 @@ const useStyles = makeStyles({
     flexDirection: "column",
     width: "100%",
     height: "100%",
+    // Containing block for the ApiConfig modal, which covers the whole window
+    // (title bar and status bar included) rather than only the main region.
+    position: "relative",
     backgroundColor: tokens.colorNeutralBackground1,
   },
   main: {
@@ -158,7 +162,11 @@ export function DesktopShell() {
         return;
       }
       if (e.key === "Escape") {
-        if (state.ui.drawerOpen) {
+        // Outermost surface first: the settings modal sits above the drawer,
+        // which sits above the narrow-window rail overlay.
+        if (state.ui.configOpen) {
+          actions.closeConfig();
+        } else if (state.ui.drawerOpen) {
           actions.closeDrawer();
         } else if (railOpen) {
           setRailOpen(false);
@@ -167,7 +175,7 @@ export function DesktopShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actions, state.ui.drawerOpen, railOpen]);
+  }, [actions, state.ui.configOpen, state.ui.drawerOpen, railOpen]);
 
   const showCard = CARD_STATES.has(status);
   return (
@@ -207,6 +215,7 @@ export function DesktopShell() {
         )}
       </div>
       <StatusBar />
+      {state.ui.configOpen && <ApiConfigPanel />}
     </div>
   );
 }

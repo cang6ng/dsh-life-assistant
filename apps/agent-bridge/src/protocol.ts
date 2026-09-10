@@ -76,13 +76,40 @@ export interface TurnSendRequest {
   text: string;
 }
 
+/**
+ * Model-endpoint configuration. `data` is deliberately absent from get/test —
+ * neither takes an argument, so neither can carry a credential value back or
+ * forth. `config.save` carries a key ONE WAY only: the wire never returns one.
+ */
+export interface ConfigGetRequest {
+  type: "config.get";
+}
+export interface ConfigSaveRequest {
+  type: "config.save";
+  data: {
+    /** "" clears the override and restores the endpoint default. */
+    baseUrl?: string;
+    model?: string;
+    /** Absent or "" keeps the stored key. */
+    apiKey?: string;
+    /** Explicit removal of the stored key. */
+    clearApiKey?: boolean;
+  };
+}
+export interface ConfigTestRequest {
+  type: "config.test";
+}
+
 export type Request =
   | SessionListRequest
   | SessionCreateRequest
   | SessionOpenRequest
   | AgentStatusRequest
   | AgentRestartRequest
-  | TurnSendRequest;
+  | TurnSendRequest
+  | ConfigGetRequest
+  | ConfigSaveRequest
+  | ConfigTestRequest;
 
 // ---------------------------------------------------------------------------
 // §26.4 session & item shapes (React-consumable; no DSH types)
@@ -204,6 +231,53 @@ export interface TurnSendAcceptData {
   accepted: true;
 }
 
+/**
+ * §26.2 model-endpoint configuration rows.
+ *
+ * The security-relevant shape here is what is NOT in it: `ApiConfigData` has
+ * no field that can carry a credential value. The UI sends a key and reads
+ * back only whether one resolves, from which layer, and whether this process
+ * may change it (contract §44 — React never receives the model credential).
+ */
+export interface ApiKeyStateData {
+  /** The credential reference in use. */
+  ref: string;
+  configured: boolean;
+  /** Supplying layer; `env` means inherited and therefore read-only. */
+  source?: string;
+  writable: boolean;
+}
+export interface ApiConfigData {
+  provider: string;
+  model: string;
+  /** User-supplied base URL; "" means the default endpoint is in use. */
+  baseUrl: string;
+  /** Whether the user layer owns `baseURL`. */
+  baseUrlOverridden: boolean;
+  apiKey: ApiKeyStateData;
+}
+export interface ApiConfigSavedData {
+  config: ApiConfigData;
+  /** True when the default model changed and the live session was rebound. */
+  modelChanged: boolean;
+  /** A credential write the store refused; the settings write still applied. */
+  apiKeyError?: string;
+}
+/**
+ * The probe's OWN outcome. The success flag is `connected`, never `ok`:
+ * `{ ok: false }` is the protocol's error-envelope discriminator
+ * (`isErrorData`), so a successful response carrying a negative verdict under
+ * that name would be read as a failed request by every layer downstream.
+ */
+export interface ApiConfigTestedData {
+  connected: boolean;
+  /** Machine-routable failure code; absent on success. */
+  code?: string;
+  /** Render-ready Chinese caption; "" on success. */
+  message: string;
+  latencyMs: number;
+}
+
 /** type → response/event data payload map (mirrors §26.2–26.3 rows). */
 export interface DataByType {
   "runtime/status": RuntimeStatusData;
@@ -223,6 +297,9 @@ export interface DataByType {
   "session.list": SessionListData;
   "session.create": SessionCreatedData;
   "session.open": SessionOpenedData;
+  "config.describe": ApiConfigData;
+  "config.saved": ApiConfigSavedData;
+  "config.tested": ApiConfigTestedData;
 }
 
 /** Request names whose canonical success envelope type differs (response-as-event). */
@@ -236,6 +313,9 @@ export const SUCCESS_TYPE_BY_REQUEST: Record<RequestType, string> = {
   "agent.status": "agent.status",
   "agent.restart": "agent.restart",
   "turn.send": "turn.send",
+  "config.get": "config.describe",
+  "config.save": "config.saved",
+  "config.test": "config.tested",
 };
 
 /** Error code vocabulary (spec §26.2 + bridge-defined generic codes). */
@@ -247,6 +327,8 @@ export const ERROR_CODES = {
   UNKNOWN_REQUEST: "UNKNOWN_REQUEST",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
   BOOT_FAILED: "BOOT_FAILED",
+  /** The profile did not mount a service the configuration surface needs. */
+  CONFIG_UNAVAILABLE: "CONFIG_UNAVAILABLE",
 } as const;
 
 export function errorData(code: string, message: string): ProtocolErrorData {

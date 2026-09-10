@@ -26,11 +26,24 @@ export interface RootState {
     openError: string | null; // §13 restore-failure card; null = ok
   };
   activeTurn: { turnId: number; startedAt: number } | null;
+  /**
+   * Model-endpoint configuration, reduced to the ONE field the shell renders
+   * (the status bar caption). null until a `config.describe` resolves.
+   *
+   * The rest of the configuration — and the API key above all — never enters
+   * this store: it lives in the panel's own component state and dies with it.
+   * That is contract §44 made structural, and
+   * tests/architecture-desktop.test.ts keeps a later refactor from
+   * "helpfully" caching a credential here.
+   */
+  config: { model: string } | null;
   ui: {
     drawerOpen: boolean;
     drawerFilter: "all" | "tools";
     /** §11.3 strip expansion, keyed by turn id. */
     expandedTurnIds: Record<string, boolean>;
+    /** The model-settings overlay (ApiConfigPanel) is open. */
+    configOpen: boolean;
   };
 }
 
@@ -40,7 +53,8 @@ export const INITIAL_STATE: RootState = {
   activeSessionId: null,
   conversation: { items: [], log: [], openError: null },
   activeTurn: null,
-  ui: { drawerOpen: false, drawerFilter: "all", expandedTurnIds: {} },
+  config: null,
+  ui: { drawerOpen: false, drawerFilter: "all", expandedTurnIds: {}, configOpen: false },
 };
 
 /**

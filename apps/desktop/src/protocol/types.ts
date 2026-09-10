@@ -142,6 +142,59 @@ export interface TurnSendAcceptData {
   accepted: true;
 }
 
+// ---------------------------------------------------------------------------
+// model-endpoint configuration (§26.2)
+// ---------------------------------------------------------------------------
+
+/** Whether a stored key resolves, and whether this process can change it. */
+export interface ApiKeyStateData {
+  ref: string;
+  configured: boolean;
+  /** Supplying layer; `env` means inherited and therefore read-only. */
+  source?: string;
+  writable: boolean;
+}
+/**
+ * The endpoint configuration as the UI may see it. There is deliberately no
+ * field anywhere in this shape that can carry a credential value (§44): the
+ * UI sends a key and reads back only whether one resolves.
+ */
+export interface ApiConfigData {
+  provider: string;
+  model: string;
+  /** User-supplied base URL; "" means the default endpoint is in use. */
+  baseUrl: string;
+  baseUrlOverridden: boolean;
+  apiKey: ApiKeyStateData;
+}
+export interface ApiConfigSavedData {
+  config: ApiConfigData;
+  modelChanged: boolean;
+  /** A credential write the store refused; the settings write still applied. */
+  apiKeyError?: string;
+}
+/**
+ * A probe outcome. The flag is `connected`, never `ok` — `{ ok: false }` is
+ * the error-envelope discriminator (`isErrorData`), so a successful response
+ * carrying a negative verdict under that name would be read as a failed
+ * request by every layer downstream.
+ */
+export interface ApiConfigTestedData {
+  connected: boolean;
+  code?: string;
+  /** Render-ready Chinese caption; "" on success. */
+  message: string;
+  latencyMs: number;
+}
+
+/** One `config.save` patch; absent fields mean "leave unchanged". */
+export interface ApiConfigPatchData {
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+}
+
 /** Uniform error shape `{ ok:false, error:{ code, message } }`. */
 export interface ProtocolErrorData {
   ok: false;
@@ -157,6 +210,7 @@ export const ERROR_CODES = {
   UNKNOWN_REQUEST: "UNKNOWN_REQUEST",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
   BOOT_FAILED: "BOOT_FAILED",
+  CONFIG_UNAVAILABLE: "CONFIG_UNAVAILABLE",
 } as const;
 
 export function isErrorData(data: unknown): data is ProtocolErrorData {

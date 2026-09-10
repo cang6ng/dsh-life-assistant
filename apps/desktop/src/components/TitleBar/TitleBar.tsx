@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Button, Spinner, makeStyles, tokens } from "@fluentui/react-components";
 import {
   DismissRegular,
+  SettingsRegular,
   SquareMultipleRegular,
   SquareRegular,
   SubtractRegular,
@@ -105,6 +106,29 @@ function ActivityEntryButton() {
   );
 }
 
+/**
+ * 模型设置 — present in EVERY runtime state, deliberately: a first-run user
+ * with no credential configured lands on the error card, and this has to be
+ * reachable from there or there is no way forward inside the product.
+ */
+function SettingsEntryButton() {
+  const styles = useStyles();
+  const { actions } = useApp();
+  return (
+    <Button
+      appearance="subtle"
+      size="small"
+      aria-label={copy["config.button"]}
+      onClick={actions.openConfig}
+    >
+      <span className={styles.activity}>
+        <SettingsRegular aria-hidden="true" />
+        {copy["config.button"]}
+      </span>
+    </Button>
+  );
+}
+
 /** Standard Windows minimize / maximize-restore / close (§4.3, §29). */
 function WindowControls() {
   const styles = useStyles();
@@ -173,6 +197,7 @@ export function TitleBar() {
       </div>
       <RuntimeStatusBadge status={state.runtime.status} />
       <div className={styles.spacer} data-tauri-drag-region />
+      <SettingsEntryButton />
       <ActivityEntryButton />
       <WindowControls />
     </div>

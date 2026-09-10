@@ -10,7 +10,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Envelope } from "../protocol/types";
+import type { ApiConfigPatchData, Envelope } from "../protocol/types";
 import { isErrorData } from "../protocol/types";
 
 export interface CommandError {
@@ -63,6 +63,37 @@ export function sessionOpen(sessionId: string): Promise<Envelope> {
 
 export function turnSend(sessionId: string, text: string): Promise<Envelope> {
   return request("turn_send", { sessionId, text });
+}
+
+// ---------------------------------------------------------------------------
+// model-endpoint configuration
+//
+// NOTE the direction of `apiKey`: it is an argument, never a result. No
+// function in this module returns a credential, and the response shapes it
+// resolves with have no field that could carry one (§44).
+// ---------------------------------------------------------------------------
+
+export function configGet(): Promise<Envelope> {
+  return request("config_get", {});
+}
+
+/**
+ * Persist a patch. Absent fields are omitted from the invoke payload entirely:
+ * the host's `Option<String>` parameters distinguish "not supplied" from
+ * "supplied empty" (empty base URL = clear the override; empty key = keep the
+ * stored one), and `undefined` would collapse the two.
+ */
+export function configSave(patch: ApiConfigPatchData): Promise<Envelope> {
+  const args: Record<string, unknown> = {};
+  if (patch.baseUrl !== undefined) args.baseUrl = patch.baseUrl;
+  if (patch.model !== undefined) args.model = patch.model;
+  if (patch.apiKey !== undefined) args.apiKey = patch.apiKey;
+  if (patch.clearApiKey !== undefined) args.clearApiKey = patch.clearApiKey;
+  return request("config_save", args);
+}
+
+export function configTest(): Promise<Envelope> {
+  return request("config_test", {});
 }
 
 // ---------------------------------------------------------------------------

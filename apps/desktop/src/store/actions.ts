@@ -70,7 +70,12 @@ export type StoreAction =
   | { type: "DRAWER_TOGGLE" }
   | { type: "DRAWER_SET_FILTER"; filter: DrawerFilter }
   | { type: "DRAWER_CLOSE" }
-  | { type: "STRIP_TOGGLE"; turnId: number };
+  | { type: "STRIP_TOGGLE"; turnId: number }
+  | { type: "CONFIG_OPEN" }
+  | { type: "CONFIG_CLOSE" }
+  | { type: "CONFIG_TOGGLE" }
+  /** Cache the model id the status bar renders (no credential ever rides here). */
+  | { type: "CONFIG_MODEL"; model: string };
 
 // ---------------------------------------------------------------------------
 // wire adapter

@@ -100,6 +100,11 @@ export function RuntimeStateCard({ variant }: { variant: RuntimeCardVariant }) {
   let raw: string | null = null;
   let action: string | null = null;
   let onAction: (() => void) | null = null;
+  // The second way out of the error card. A missing or rejected credential is
+  // the most common cause of reaching this card at all, and restarting the
+  // agent cannot fix either — 模型设置 can.
+  let secondary: string | null = null;
+  let onSecondary: (() => void) | null = null;
 
   switch (variant) {
     case "starting":
@@ -125,6 +130,8 @@ export function RuntimeStateCard({ variant }: { variant: RuntimeCardVariant }) {
         setRetryFailed(false);
         void actions.restartAgent();
       };
+      secondary = copy["card.config.action"];
+      onSecondary = actions.openConfig;
       break;
   }
 
@@ -151,6 +158,11 @@ export function RuntimeStateCard({ variant }: { variant: RuntimeCardVariant }) {
             <Button appearance="primary" onClick={onAction}>
               {action}
             </Button>
+            {secondary !== null && onSecondary !== null && (
+              <Button appearance="secondary" onClick={onSecondary}>
+                {secondary}
+              </Button>
+            )}
           </div>
         )}
         {retryFailed && <Text className={styles.caption}>{copy["card.error.retryFailed"]}</Text>}

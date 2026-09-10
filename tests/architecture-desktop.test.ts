@@ -104,6 +104,49 @@ describe("§60 — Agent Core (CLI runtime + bridge) stays UI-free", () => {
   });
 });
 
+describe("§44 — the model credential stays out of presentation state", () => {
+  /** Source with comments removed, so a documented rule is not a violation. */
+  const code = (rel: string): string =>
+    readFileSync(join(DESKTOP_SRC, rel), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("models no credential anywhere in the store — the config slice is a model id", () => {
+    // `\btoken\b`: the store legitimately says "max-tokens" (a turn-end reason).
+    const credentialWord = /apiKey|api_key|credential|secret|\btoken\b/i;
+    for (const rel of ["store/state.ts", "store/actions.ts", "store/reducer.ts"]) {
+      expect(code(rel), rel).not.toMatch(credentialWord);
+    }
+  });
+
+  it("declares no response shape able to carry a key value", () => {
+    const types = code("protocol/types.ts");
+    const declared = types.slice(types.indexOf("export interface ApiKeyStateData"));
+    const body = declared.slice(0, declared.indexOf("}"));
+    // The key state is a presence triple: whether one resolves, from where,
+    // and whether this process may change it. No value, no preview, no tail.
+    for (const field of ["configured", "writable", "ref"]) expect(body).toContain(field);
+    for (const forbidden of ["value", "preview", "last4", "masked"]) {
+      expect(body, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("lets the credential travel only as a save argument", () => {
+    const client = code("bridge/client.ts");
+    // Both reads are argument-less: there is no API to ask for a key back.
+    expect(client).toMatch(/export function configGet\(\): Promise<Envelope>/);
+    expect(client).toMatch(/export function configTest\(\): Promise<Envelope>/);
+    expect(client).toMatch(/configSave\(patch: ApiConfigPatchData\)/);
+  });
+
+  it("never reads the key input back out of the DOM", () => {
+    const panel = code("components/ApiConfig/ApiConfigPanel.tsx");
+    for (const banned of ["querySelector", "defaultValue", "localStorage", "sessionStorage"]) {
+      expect(panel, banned).not.toContain(banned);
+    }
+  });
+});
+
 describe("§59 — reasoning content never reaches the presentation", () => {
   const bridge = readAll(BRIDGE_SRC);
   const react = readAll(DESKTOP_SRC, ".ts") + readAll(DESKTOP_SRC, ".tsx");

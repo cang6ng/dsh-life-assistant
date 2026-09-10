@@ -58,7 +58,7 @@ export const copy = {
   "status.error": "错误",
   "status.restarting": "正在重新启动…",
   "status.busy": "Agent 正在回答…",
-  "status.model": "deepseek-v4-flash · 会话已自动保存",
+  "status.model": "{model} · 会话已自动保存",
   "card.starting.title": "正在启动 DSH Life Assistant…",
   "card.disconnected.title": "Agent Runtime 已断开",
   "card.disconnected.sub": "与 Agent 的连接意外中断。你的会话已保存在本机，不会丢失。",
@@ -79,6 +79,43 @@ export const copy = {
   // §23.4: announced prefix for the once-announced error line `出了错：{caption}`.
   "err.announce": "出了错：",
   "provenance.assistant": "Chinook Music",
+  // ---- model-endpoint configuration (ApiConfigPanel) ----------------------
+  "config.button": "模型设置",
+  "config.title": "模型设置",
+  "config.sub": "配置一个 OpenAI 兼容的模型端点。Base URL 与 API Key 保存后立即生效；模型名称保存后应用到下一条消息。",
+  "config.baseUrl.label": "Base URL",
+  "config.baseUrl.hint": "留空使用默认端点。只需填到域名（或 /v1），不要包含 /chat/completions。",
+  "config.baseUrl.stripped": "已自动去掉 /chat/completions 后缀",
+  "config.baseUrl.overridden": "当前使用自定义端点",
+  "config.apiKey.label": "API Key",
+  "config.apiKey.hint": "留空表示保持已保存的密钥。密钥只写入本机凭据库，界面不会回显。",
+  "config.apiKey.configured": "已配置（来源：{source}）",
+  "config.apiKey.missing": "尚未配置",
+  "config.apiKey.readOnly": "密钥由启动环境提供（{ref}），无法在应用内修改。请先移除该环境变量再重启应用。",
+  "config.apiKey.clear": "清除密钥",
+  "config.apiKey.willClear": "保存后将清除本机保存的密钥",
+  "config.model.label": "模型名称",
+  "config.model.hint": "模型名会原样发送给端点。",
+  "config.save": "保存",
+  "config.saveAndTest": "保存并测试连接",
+  "config.test": "测试连接",
+  "config.test.dirty": "请先保存，再测试连接",
+  "config.close": "关闭",
+  "config.loading": "正在读取配置…",
+  "config.locked": "请等待当前回答完成",
+  "config.saving": "正在保存…",
+  "config.testing": "正在测试连接…",
+  "config.saved": "已保存",
+  "config.saved.applying": "已保存，模型将在下一条消息生效",
+  "config.test.ok": "连接成功（{ms} ms）",
+  "config.test.fail": "连接失败：{message}",
+  "config.err.baseUrl": "请输入以 http:// 或 https:// 开头的地址",
+  "config.err.model": "模型名称不能为空",
+  "config.err.load": "无法读取配置：{message}",
+  "config.err.save": "保存失败：{message}",
+  "config.err.notReady": "Agent 尚未就绪，请稍后重试",
+  "config.err.noHost": "无法与 Agent 通信，请重新启动应用",
+  "card.config.action": "模型设置",
 } as const;
 
 export type CopyKey = keyof typeof copy;
@@ -86,4 +123,45 @@ export type CopyKey = keyof typeof copy;
 export function stripCopy(kind: "done" | "stopped" | "failed", n: number): string {
   const key = kind === "done" ? "strip.done" : kind === "stopped" ? "strip.stopped" : "strip.failed";
   return copy[key].replace("{n}", String(n));
+}
+
+/** The status-bar caption with the live model id (§16.6). */
+export function statusModelCopy(model: string): string {
+  return copy["status.model"].replace("{model}", model);
+}
+
+/** `已配置（来源：…）` — the layer a stored key resolves from, never its value. */
+export function apiKeyConfiguredCopy(source: string): string {
+  return copy["config.apiKey.configured"].replace("{source}", source);
+}
+
+export function apiKeyReadOnlyCopy(ref: string): string {
+  return copy["config.apiKey.readOnly"].replace("{ref}", ref);
+}
+
+export function configLoadFailedCopy(message: string): string {
+  return copy["config.err.load"].replace("{message}", message);
+}
+
+export function configSaveFailedCopy(message: string): string {
+  return copy["config.err.save"].replace("{message}", message);
+}
+
+export function configTestOkCopy(ms: number): string {
+  return copy["config.test.ok"].replace("{ms}", String(ms));
+}
+
+export function configTestFailCopy(message: string): string {
+  return copy["config.test.fail"].replace("{message}", message);
+}
+
+/**
+ * A `config.test` request the bridge itself refused, so the probe never ran.
+ * The bridge's Chinese words are for a person, not for a user staring at a
+ * disabled composer — translate the two that mean something here.
+ */
+export function configRequestFailedCopy(code: string, message: string): string {
+  if (code === "NOT_READY") return copy["config.err.notReady"];
+  if (code === "TURN_ACTIVE") return copy["config.locked"];
+  return message;
 }

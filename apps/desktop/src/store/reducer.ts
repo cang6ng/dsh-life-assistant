@@ -343,6 +343,17 @@ export function reducer(state: RootState, action: StoreAction): RootState {
       return { ...state, ui: { ...state.ui, drawerFilter: action.filter } };
     case "DRAWER_CLOSE":
       return { ...state, ui: { ...state.ui, drawerOpen: false } };
+    // The model-settings overlay. Purely presentational: `configOpen` moves
+    // nothing but the overlay's visibility, and CONFIG_MODEL carries a model
+    // ID — never a credential (§44).
+    case "CONFIG_OPEN":
+      return { ...state, ui: { ...state.ui, configOpen: true } };
+    case "CONFIG_CLOSE":
+      return { ...state, ui: { ...state.ui, configOpen: false } };
+    case "CONFIG_TOGGLE":
+      return { ...state, ui: { ...state.ui, configOpen: !state.ui.configOpen } };
+    case "CONFIG_MODEL":
+      return { ...state, config: { model: action.model } };
     case "STRIP_TOGGLE":
       return {
         ...state,

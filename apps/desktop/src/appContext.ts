@@ -8,6 +8,12 @@
 import { createContext, useContext } from "react";
 import type { DrawerFilter } from "./store/actions";
 import type { RootState } from "./store/state";
+import type {
+  ApiConfigData,
+  ApiConfigPatchData,
+  ApiConfigSavedData,
+  ApiConfigTestedData,
+} from "./protocol/types";
 
 /** send() outcome for the composer hint (never throws). */
 export interface SendResult {
@@ -15,6 +21,16 @@ export interface SendResult {
   /** Bridge error code when known (TURN_ACTIVE / NOT_READY / …). */
   code?: string;
 }
+
+/** `config.get` as the panel consumes it — a failure is a caption, not a throw. */
+export type ApiConfigLoadResult =
+  | { ok: true; config: ApiConfigData }
+  | { ok: false; message: string };
+
+/** `config.save` likewise: the refusal text is rendered, never retried blind. */
+export type ApiConfigSaveResult =
+  | { ok: true; data: ApiConfigSavedData }
+  | { ok: false; message: string };
 
 export interface AppActions {
   /** Submit one user turn for the active session. Resolves after the
@@ -34,6 +50,19 @@ export interface AppActions {
   setDrawerFilter: (filter: DrawerFilter) => void;
   closeDrawer: () => void;
   toggleStrip: (turnId: number) => void;
+
+  // ---- model-endpoint configuration (§4.3, v1.0.2) ------------------------
+  openConfig: () => void;
+  closeConfig: () => void;
+  /** Read the endpoint config. null-shaped result, never a throw. */
+  loadApiConfig: () => Promise<ApiConfigLoadResult>;
+  /**
+   * Persist one patch. The `apiKey` field travels UP only: it is an argument
+   * here and appears in no result, no store slice and no log line (§44).
+   */
+  saveApiConfig: (patch: ApiConfigPatchData) => Promise<ApiConfigSaveResult>;
+  /** One minimal completion through the configured endpoint. Never throws. */
+  testApiConnection: () => Promise<ApiConfigTestedData>;
 }
 
 export interface AppValue {

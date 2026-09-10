@@ -12,18 +12,75 @@ import {
   loadOptionalPatches,
   loadProfile
 } from "@deepseek-ai/dsh-app-boot";
-import { installModelSelection } from "@deepseek-ai/dsh-agent";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import {
+  installModelSelection
+} from "@deepseek-ai/dsh-agent";
+import { createUserMessage, errorChain, normalizeApiKey } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
+
+// apps/cli/src/probe-failure.ts
+var CHAT_COMPLETIONS_HINT = "\u8BF7\u786E\u8BA4\u5B83\u662F OpenAI \u517C\u5BB9\u7684 /chat/completions \u7AEF\u70B9";
+function timeoutSeconds(context) {
+  return Math.max(1, Math.round((context.timeoutMs ?? 2e4) / 1e3));
+}
+function describeProbeFailure(failure, context = {}) {
+  if (failure.timedOut === true) {
+    return `\u8FDE\u63A5\u8D85\u65F6\uFF08${timeoutSeconds(context)} \u79D2\uFF09\uFF0C\u8BF7\u68C0\u67E5 Base URL \u4E0E\u7F51\u7EDC`;
+  }
+  switch (failure.code) {
+    case "MISSING_CREDENTIAL":
+      return "\u5C1A\u672A\u914D\u7F6E API Key\uFF0C\u8BF7\u586B\u5199\u540E\u4FDD\u5B58\u518D\u6D4B\u8BD5";
+    case "INVALID_CREDENTIAL":
+      return "API Key \u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u8BF7\u91CD\u65B0\u586B\u5199";
+    case "AUTH":
+      return "API Key \u88AB\u62D2\u7EDD\uFF08401/403\uFF09\uFF0C\u8BF7\u68C0\u67E5\u5BC6\u94A5\u662F\u5426\u6709\u6548";
+    case "QUOTA":
+      return "\u8D26\u6237\u989D\u5EA6\u4E0D\u8DB3\u6216\u5DF2\u6B20\u8D39";
+    case "NO_ADAPTER":
+      return "\u6A21\u578B\u8DEF\u7531\u672A\u6CE8\u518C\uFF0C\u8BF7\u91CD\u65B0\u542F\u52A8 Agent";
+    case "RATE_LIMIT":
+      return "\u8BF7\u6C42\u88AB\u9650\u6D41\uFF08429\uFF09\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5";
+    case "SERVER":
+      return "\u7AEF\u70B9\u670D\u52A1\u5F02\u5E38\uFF085xx\uFF09\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5";
+    case "CONTEXT_WINDOW_EXCEEDED":
+      return "\u4E0A\u4E0B\u6587\u8D85\u51FA\u8BE5\u6A21\u578B\u7684\u7A97\u53E3\u4E0A\u9650";
+    case "INVALID_REQUEST":
+      return `\u8BF7\u6C42\u88AB\u7AEF\u70B9\u62D2\u7EDD\uFF08400\uFF09${CHAT_COMPLETIONS_HINT}`;
+    case "HTTP_404":
+      return "\u5730\u5740\u6216\u6A21\u578B\u4E0D\u5B58\u5728\uFF08404\uFF09\uFF0C\u8BF7\u68C0\u67E5 Base URL \u4E0E\u6A21\u578B\u540D\u79F0";
+    case "TRANSPORT":
+      return "\u65E0\u6CD5\u8FDE\u63A5\u5230\u8BE5\u7AEF\u70B9\uFF0C\u8BF7\u68C0\u67E5 Base URL \u4E0E\u7F51\u7EDC";
+    case "TIMEOUT":
+      return `\u8FDE\u63A5\u8D85\u65F6\uFF08${timeoutSeconds(context)} \u79D2\uFF09\uFF0C\u8BF7\u68C0\u67E5 Base URL \u4E0E\u7F51\u7EDC`;
+    case "ABORTED":
+      return "\u8BF7\u6C42\u5DF2\u53D6\u6D88";
+    case "STREAM_CLOSED":
+    case "INVALID_RESPONSE":
+      return `\u7AEF\u70B9\u672A\u8FD4\u56DE\u5B8C\u6574\u54CD\u5E94\uFF0C${CHAT_COMPLETIONS_HINT}`;
+    case void 0:
+    case "":
+      return "\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5 Base URL\u3001API Key \u4E0E\u6A21\u578B\u540D\u79F0";
+    default:
+      return failure.code.startsWith("HTTP_") ? `\u7AEF\u70B9\u8FD4\u56DE HTTP ${failure.code.slice("HTTP_".length)}` : `\u8FDE\u63A5\u5931\u8D25\uFF08${failure.code}\uFF09`;
+  }
+}
+
+// apps/cli/src/runtime.ts
 var PROFILE_NAME = "chinook";
 var BIN_NAME = "chinook-agent";
 var FALLBACK_MODEL = { provider: "deepseek-official", model: "deepseek-v4-flash" };
 var REPO_ROOT = resolve(import.meta.dirname, "../../..");
 var DSH_HOME = resolve(process.env.DSH_HOME ?? join(REPO_ROOT, ".dsh"));
 var INSTALL_ANCHOR = realpathSync(createRequire(import.meta.url).resolve("@deepseek-ai/dsh/package.json"));
+var LLM_SETTINGS_NS = "llm-deepseek";
+var DEFAULT_API_KEY_REF = "DEEPSEEK_API_KEY";
+var PROBE_TIMEOUT_MS = 2e4;
 async function createAgentRuntime() {
   process.env.DSH_HOME ??= DSH_HOME;
-  process.env.DEEPSEEK_API_KEY ??= process.env.ANTHROPIC_AUTH_TOKEN;
+  const inheritedToken = process.env.ANTHROPIC_AUTH_TOKEN;
+  if (process.env.DEEPSEEK_API_KEY === void 0 && inheritedToken !== void 0 && inheritedToken !== "") {
+    process.env.DEEPSEEK_API_KEY = inheritedToken;
+  }
   const profile = loadProfile(BIN_NAME, PROFILE_NAME, INSTALL_ANCHOR, DSH_HOME);
   await healProfilesModuleFallback({ installAnchor: INSTALL_ANCHOR, profile, home: DSH_HOME });
   const rootConfig = join(profile.dir, "cordis.yml");
@@ -49,6 +106,7 @@ async function createAgentRuntime() {
     const selection = modelSelection();
     return { provider: selection.provider, model: selection.model };
   };
+  let liveModelSelection = null;
   let active = null;
   const sessionEventSinks = /* @__PURE__ */ new Set();
   ctx.on("session/event", (eventSession, event) => {
@@ -84,7 +142,8 @@ async function createAgentRuntime() {
   const startSession = async (resumeId) => {
     await closeActiveSession();
     const setup = (agentCtx) => {
-      installModelSelection(agentCtx, { current: modelSelection(), assembled: void 0 });
+      liveModelSelection = { current: modelSelection(), assembled: void 0 };
+      installModelSelection(agentCtx, liveModelSelection);
     };
     let handle;
     if (resumeId !== void 0) {
@@ -152,6 +211,166 @@ async function createAgentRuntime() {
       sessionEventSinks.delete(cb);
     };
   };
+  const missingService = (service) => new Error(`${BIN_NAME}: the ${PROFILE_NAME} profile did not mount the ${service} service (${service} missing).`);
+  const requireSettings = () => {
+    const settings = ctx.get("settings");
+    if (settings === void 0) throw missingService("settings");
+    return settings;
+  };
+  const llmSettingsDescriptor = () => {
+    const descriptor = requireSettings().describe({ redactSecrets: true }).find((candidate) => candidate.ns === LLM_SETTINGS_NS);
+    if (descriptor === void 0) {
+      throw new Error(`${BIN_NAME}: the ${PROFILE_NAME} profile did not register the ${LLM_SETTINGS_NS} settings namespace.`);
+    }
+    return descriptor;
+  };
+  const apiKeyRef = (descriptor) => {
+    const section = descriptor.value;
+    const ref = section?.apiKeyEnv;
+    return typeof ref === "string" && ref !== "" ? ref : DEFAULT_API_KEY_REF;
+  };
+  const readApiConfig = async () => {
+    const descriptor = llmSettingsDescriptor();
+    const resolved = descriptor.value ?? {};
+    const user = descriptor.user ?? void 0;
+    const ref = apiKeyRef(descriptor);
+    const credentials = ctx.get("credentials");
+    const info = credentials === void 0 ? { configured: false, writable: false } : await credentials.describe(ref);
+    const selection = modelSelection();
+    const baseUrl = typeof resolved.baseURL === "string" ? resolved.baseURL : "";
+    return {
+      provider: selection.provider,
+      model: selection.model,
+      baseUrl,
+      baseUrlOverridden: user !== void 0 && Object.hasOwn(user, "baseURL"),
+      apiKey: {
+        ref,
+        configured: info.configured,
+        source: info.source,
+        writable: info.writable
+      }
+    };
+  };
+  const saveApiConfig = async (patch) => {
+    const settings = requireSettings();
+    const credentials = ctx.get("credentials");
+    const descriptor = llmSettingsDescriptor();
+    const ref = apiKeyRef(descriptor);
+    const before = modelSelection().model;
+    let apiKeyError;
+    if (patch.baseUrl !== void 0) {
+      const value = patch.baseUrl.trim();
+      await settings.mutate(
+        LLM_SETTINGS_NS,
+        [value === "" ? { op: "unset", path: ["baseURL"] } : { op: "set", path: ["baseURL"], value }],
+        descriptor.revision
+      );
+    }
+    let modelChanged = false;
+    if (patch.model !== void 0) {
+      const model = patch.model.trim();
+      if (model === "") throw new Error("\u6A21\u578B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
+      if (model !== before) {
+        const defaultModel = ctx.get("agentDefaultModel");
+        if (defaultModel === void 0) throw missingService("agentDefaultModel");
+        await defaultModel.saveSelection({ ...modelSelection(), model });
+        modelChanged = true;
+        if (liveModelSelection !== null) liveModelSelection.current = modelSelection();
+      }
+    }
+    if (patch.clearApiKey === true) {
+      if (credentials === void 0) {
+        apiKeyError = "\u5F53\u524D\u8FD0\u884C\u73AF\u5883\u672A\u6302\u8F7D\u51ED\u636E\u5E93\uFF0C\u672A\u6E05\u9664\u5BC6\u94A5";
+      } else if (!(await credentials.describe(ref)).writable) {
+        apiKeyError = `\u5BC6\u94A5\u7531\u542F\u52A8\u73AF\u5883\u63D0\u4F9B\uFF08${ref}\uFF09\uFF0C\u65E0\u6CD5\u5728\u5E94\u7528\u5185\u4FEE\u6539`;
+      } else {
+        try {
+          await credentials.unset(ref);
+        } catch (error) {
+          console.error(`[warning] credential unset failed: ${String(error)}`);
+          apiKeyError = "\u5BC6\u94A5\u6E05\u9664\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+        }
+      }
+    } else if (patch.apiKey !== void 0 && patch.apiKey !== "") {
+      const check = normalizeApiKey(patch.apiKey);
+      if (!check.ok) {
+        throw new Error(
+          check.reason === "illegalCharacters" ? "API Key \u542B\u975E\u6CD5\u5B57\u7B26\uFF08\u7A7A\u683C\u6216\u6362\u884C\uFF09" : "API Key \u4E0D\u80FD\u4E3A\u7A7A"
+        );
+      }
+      if (credentials === void 0) {
+        apiKeyError = "\u5F53\u524D\u8FD0\u884C\u73AF\u5883\u672A\u6302\u8F7D\u51ED\u636E\u5E93\uFF0C\u5BC6\u94A5\u672A\u4FDD\u5B58";
+      } else if (!(await credentials.describe(ref)).writable) {
+        apiKeyError = `\u5BC6\u94A5\u7531\u542F\u52A8\u73AF\u5883\u63D0\u4F9B\uFF08${ref}\uFF09\uFF0C\u65E0\u6CD5\u5728\u5E94\u7528\u5185\u4FEE\u6539`;
+      } else {
+        try {
+          await credentials.set(ref, check.value);
+        } catch (error) {
+          console.error(`[warning] credential write failed: ${errorChain(error)}`);
+          apiKeyError = "\u5BC6\u94A5\u5199\u5165\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+        }
+      }
+    }
+    return {
+      config: await readApiConfig(),
+      modelChanged,
+      ...apiKeyError === void 0 ? {} : { apiKeyError }
+    };
+  };
+  const testApiConnection = async () => {
+    const llm = ctx.get("llm");
+    if (llm === void 0) throw missingService("llm");
+    const selection = modelSelection();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    const startedAt = Date.now();
+    let failure = null;
+    let finished = false;
+    try {
+      const stream = llm.stream({
+        provider: selection.provider,
+        model: selection.model,
+        messages: [
+          createUserMessage({ content: [{ type: "text", text: "ping" }], source: { kind: "user" } })
+        ],
+        maxTokens: 1,
+        signal: controller.signal
+      });
+      for await (const chunk of stream) {
+        if (chunk.type !== "finish") continue;
+        finished = true;
+        const reason = chunk.reason;
+        if ((reason?.kind === "error" || reason?.kind === "aborted") && reason.failure !== void 0) {
+          failure = { ...reason.failure, timedOut: controller.signal.aborted };
+        }
+        break;
+      }
+    } catch (error) {
+      console.error(`[warning] probe stream failed: ${errorChain(error)}`);
+      failure = { code: "PROBE_FAILED" };
+    } finally {
+      clearTimeout(timer);
+    }
+    const latencyMs = Date.now() - startedAt;
+    if (failure !== null && failure.code !== "EMPTY_RESPONSE") {
+      console.error(`[probe] connection test failed: ${failure.code ?? "UNKNOWN"}`);
+      return {
+        connected: false,
+        code: failure.code,
+        message: describeProbeFailure(failure, { timeoutMs: PROBE_TIMEOUT_MS }),
+        latencyMs
+      };
+    }
+    if (!finished) {
+      return {
+        connected: false,
+        code: "STREAM_CLOSED",
+        message: describeProbeFailure({ code: "STREAM_CLOSED" }, { timeoutMs: PROBE_TIMEOUT_MS }),
+        latencyMs
+      };
+    }
+    return { connected: true, message: "", latencyMs };
+  };
   const listSessions = async () => {
     if (persistence === void 0) return [];
     const headers = await persistence.list();
@@ -176,7 +395,10 @@ async function createAgentRuntime() {
     dispose,
     subscribeSessionEvents,
     describeActiveSession,
-    readActiveSessionSnapshot
+    readActiveSessionSnapshot,
+    readApiConfig,
+    saveApiConfig,
+    testApiConnection
   };
 }
 
@@ -189,7 +411,9 @@ var ERROR_CODES = {
   INVALID_ARGUMENT: "INVALID_ARGUMENT",
   UNKNOWN_REQUEST: "UNKNOWN_REQUEST",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
-  BOOT_FAILED: "BOOT_FAILED"
+  BOOT_FAILED: "BOOT_FAILED",
+  /** The profile did not mount a service the configuration surface needs. */
+  CONFIG_UNAVAILABLE: "CONFIG_UNAVAILABLE"
 };
 function errorData(code, message) {
   return { ok: false, error: { code, message } };
@@ -1143,6 +1367,69 @@ var AgentBridge = class {
         }
         return;
       }
+      // ---- model-endpoint configuration (v1.0.2) ---------------------------
+      // Reading is ungated (the panel may load mid-turn); saving and probing
+      // are TURN_ACTIVE-guarded like session.create/open — flipping the
+      // endpoint under a streaming answer is exactly what those guards exist
+      // to prevent. Note what is logged: flags and reference names only, never
+      // a value from `req.data` (the key travels in that payload).
+      case "config.get":
+        try {
+          respond("config.describe", await this.rt.readApiConfig());
+        } catch (error) {
+          this.log(`config read failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `\u65E0\u6CD5\u8BFB\u53D6\u6A21\u578B\u914D\u7F6E\uFF1A${String(error)}`);
+        }
+        return;
+      case "config.save": {
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "\u5F53\u524D\u56DE\u7B54\u8FDB\u884C\u4E2D\uFF0C\u65E0\u6CD5\u4FEE\u6539\u6A21\u578B\u914D\u7F6E");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent \u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u91CD\u65B0\u542F\u52A8\u540E\u518D\u8BD5");
+          return;
+        }
+        const body = req.data ?? {};
+        const patch = {};
+        if (typeof body.baseUrl === "string") patch.baseUrl = body.baseUrl;
+        if (typeof body.model === "string") patch.model = body.model;
+        if (typeof body.apiKey === "string" && body.apiKey !== "") patch.apiKey = body.apiKey;
+        if (body.clearApiKey === true) patch.clearApiKey = true;
+        if (Object.keys(patch).length === 0) {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "\u6CA1\u6709\u9700\u8981\u4FDD\u5B58\u7684\u4FEE\u6539");
+          return;
+        }
+        try {
+          const result = await this.rt.saveApiConfig(patch);
+          this.log(
+            `config save applied (baseUrl=${patch.baseUrl !== void 0}, model=${patch.model !== void 0}, apiKey=${patch.apiKey !== void 0}, clearKey=${patch.clearApiKey === true})`
+          );
+          respond("config.saved", result);
+        } catch (error) {
+          const message = String(error);
+          const code = message.includes("\u6A21\u578B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A") || message.includes("API Key") ? ERROR_CODES.INVALID_ARGUMENT : ERROR_CODES.CONFIG_UNAVAILABLE;
+          this.log(`config save failed: ${message}`);
+          fail(code, `\u4FDD\u5B58\u914D\u7F6E\u5931\u8D25\uFF1A${message}`);
+        }
+        return;
+      }
+      case "config.test":
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "\u5F53\u524D\u56DE\u7B54\u8FDB\u884C\u4E2D\uFF0C\u65E0\u6CD5\u6D4B\u8BD5\u8FDE\u63A5");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent \u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u91CD\u65B0\u542F\u52A8\u540E\u518D\u8BD5");
+          return;
+        }
+        try {
+          respond("config.tested", await this.rt.testApiConnection());
+        } catch (error) {
+          this.log(`connection test failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `\u65E0\u6CD5\u6D4B\u8BD5\u8FDE\u63A5\uFF1A${String(error)}`);
+        }
+        return;
       default:
         fail(ERROR_CODES.UNKNOWN_REQUEST, `\u672A\u77E5\u8BF7\u6C42\u7C7B\u578B\uFF1A${String(req.type)}`);
     }

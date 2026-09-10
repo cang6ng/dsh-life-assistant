@@ -108,6 +108,62 @@ pub async fn turn_send(manager: ManagerState<'_>, session_id: String, text: Stri
 }
 
 // ---------------------------------------------------------------------------
+// model-endpoint configuration (proxied §26 requests)
+// ---------------------------------------------------------------------------
+
+/// Read the endpoint configuration. Never returns a credential value — the
+/// bridge's `config.describe` shape has no field that can carry one.
+#[tauri::command]
+pub async fn config_get(manager: ManagerState<'_>) -> Result<Envelope, String> {
+    Ok(agent_request(Arc::clone(&manager), "config.get", serde_json::json!({})).await)
+}
+
+/// Build the `config.save` payload with tri-state fidelity: an absent field
+/// means "leave unchanged" while an empty string is a real instruction (clear
+/// the base URL / clear the stored key). Serializing the whole patch as one
+/// `Option`-bearing struct would collapse those two cases.
+fn config_save_body(base_url: Option<String>, model: Option<String>, api_key: Option<String>, clear_api_key: Option<bool>) -> Value {
+    let mut data = serde_json::Map::new();
+    if let Some(value) = base_url {
+        data.insert("baseUrl".to_string(), Value::String(value));
+    }
+    if let Some(value) = model {
+        data.insert("model".to_string(), Value::String(value));
+    }
+    if let Some(value) = api_key {
+        data.insert("apiKey".to_string(), Value::String(value));
+    }
+    if let Some(value) = clear_api_key {
+        data.insert("clearApiKey".to_string(), Value::Bool(value));
+    }
+    Value::Object(data)
+}
+
+/// Persist a configuration patch. `api_key` is write-only: it travels
+/// frontend → host → bridge → the credential store and is never echoed back.
+#[tauri::command]
+pub async fn config_save(
+    manager: ManagerState<'_>,
+    base_url: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    clear_api_key: Option<bool>,
+) -> Result<Envelope, String> {
+    Ok(agent_request(
+        Arc::clone(&manager),
+        "config.save",
+        config_save_body(base_url, model, api_key, clear_api_key),
+    )
+    .await)
+}
+
+/// Prove the saved configuration with one minimal model call.
+#[tauri::command]
+pub async fn config_test(manager: ManagerState<'_>) -> Result<Envelope, String> {
+    Ok(agent_request(Arc::clone(&manager), "config.test", serde_json::json!({})).await)
+}
+
+// ---------------------------------------------------------------------------
 // events
 // ---------------------------------------------------------------------------
 

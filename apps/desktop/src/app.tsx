@@ -21,15 +21,24 @@ import {
   type ReactNode,
 } from "react";
 import { FluentProvider, makeStaticStyles, makeStyles } from "@fluentui/react-components";
-import type { Envelope } from "./protocol/types";
+import type {
+  ApiConfigData,
+  ApiConfigPatchData,
+  ApiConfigSavedData,
+  ApiConfigTestedData,
+  Envelope,
+} from "./protocol/types";
 import { actionFromEvent, type DrawerFilter } from "./store/actions";
 import { reducer } from "./store/reducer";
 import { INITIAL_STATE } from "./store/state";
 import { buildDarkTheme, buildLightTheme, type ThemeTokens } from "./theme";
 import { DesktopShell } from "./components/DesktopShell/DesktopShell";
+import { configRequestFailedCopy, copy } from "./copy";
 import {
   AppCtx,
   type AppActions,
+  type ApiConfigLoadResult,
+  type ApiConfigSaveResult,
   type AppValue,
   type SendResult,
 } from "./appContext";
@@ -325,6 +334,86 @@ function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ---- model-endpoint configuration (§4.3, v1.0.2) ------------------------
+  // These three are the ONLY path by which a model credential leaves React,
+  // and it leaves as an argument to `bridge.configSave` and nowhere else. No
+  // result shape below has a field that could carry one back (§44).
+
+  const loadApiConfig = useCallback(async (): Promise<ApiConfigLoadResult> => {
+    try {
+      const env = await bridge.configGet();
+      if (bridge.envelopeIsError(env)) {
+        return { ok: false, message: bridge.envelopeError(env).message };
+      }
+      return { ok: true, config: env.data as ApiConfigData };
+    } catch (e) {
+      return { ok: false, message: String(e) };
+    }
+  }, []);
+
+  const saveApiConfig = useCallback(
+    async (patch: ApiConfigPatchData): Promise<ApiConfigSaveResult> => {
+      try {
+        const env = await bridge.configSave(patch);
+        if (bridge.envelopeIsError(env)) {
+          return { ok: false, message: bridge.envelopeError(env).message };
+        }
+        const data = env.data as ApiConfigSavedData;
+        // The status bar follows the model that is now in effect. The model id
+        // is not a secret; the key that came with it never gets this far.
+        dispatch({ type: "CONFIG_MODEL", model: data.config.model });
+        return { ok: true, data };
+      } catch (e) {
+        return { ok: false, message: String(e) };
+      }
+    },
+    [],
+  );
+
+  const testApiConnection = useCallback(async (): Promise<ApiConfigTestedData> => {
+    try {
+      const env = await bridge.configTest();
+      if (bridge.envelopeIsError(env)) {
+        const err = bridge.envelopeError(env);
+        return {
+          connected: false,
+          code: err.code,
+          message: configRequestFailedCopy(err.code, err.message),
+          latencyMs: 0,
+        };
+      }
+      return env.data as ApiConfigTestedData;
+    } catch {
+      return {
+        connected: false,
+        code: "TRANSPORT",
+        message: copy["config.err.noHost"],
+        latencyMs: 0,
+      };
+    }
+  }, []);
+
+  /**
+   * The config read is tied to the runtime reaching `ready`, not to mount:
+   * `config.get` needs a booted runtime and answers NOT_READY before that, and
+   * a cold boot needs several seconds. Leaving `ready` re-arms it, so a
+   * restart's fresh runtime is read again (a restart can pick up renames in
+   * the environment layer, which changes `writable` for the key ref).
+   */
+  const configReadDoneRef = useRef(false);
+  useEffect(() => {
+    if (state.runtime.status !== "ready") {
+      configReadDoneRef.current = false;
+      return;
+    }
+    if (configReadDoneRef.current) return;
+    configReadDoneRef.current = true;
+    void (async () => {
+      const result = await loadApiConfig();
+      if (result.ok) dispatch({ type: "CONFIG_MODEL", model: result.config.model });
+    })();
+  }, [state.runtime.status, loadApiConfig]);
+
   const actions = useMemo<AppActions>(
     () => ({
       send,
@@ -338,8 +427,23 @@ function AppStateProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "DRAWER_SET_FILTER", filter }),
       closeDrawer: () => dispatch({ type: "DRAWER_CLOSE" }),
       toggleStrip: (turnId: number) => dispatch({ type: "STRIP_TOGGLE", turnId }),
+      openConfig: () => dispatch({ type: "CONFIG_OPEN" }),
+      closeConfig: () => dispatch({ type: "CONFIG_CLOSE" }),
+      loadApiConfig,
+      saveApiConfig,
+      testApiConnection,
     }),
-    [send, newSession, openSession, retryOpen, restoreClose, restartAgent],
+    [
+      send,
+      newSession,
+      openSession,
+      retryOpen,
+      restoreClose,
+      restartAgent,
+      loadApiConfig,
+      saveApiConfig,
+      testApiConnection,
+    ],
   );
 
   const value = useMemo<AppValue>(

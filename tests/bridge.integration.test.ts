@@ -13,8 +13,10 @@
  * its own worker process — the env cannot leak across files.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Envelope, SessionSummary } from "../apps/agent-bridge/src/protocol";
+import type { ApiConfigData, Envelope, SessionSummary } from "../apps/agent-bridge/src/protocol";
 import { cleanupTestHome, provisionTestHome } from "./helpers/test-home";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -63,17 +65,36 @@ async function bootBridge(): Promise<{ bridge: AgentBridgeInstance; lines: Envel
   };
 }
 
+/** One request/response round trip through the real bridge. */
+async function send(bridge: AgentBridgeInstance, lines: Envelope[], type: string, data?: unknown): Promise<Envelope> {
+  const requestId = `q-${type}-${lines.length}`;
+  await bridge.handleRequestLine(
+    JSON.stringify({ protocolVersion: 1, requestId, type, ...(data === undefined ? {} : { data }) }),
+  );
+  return waitFor(lines, (e) => e.requestId === requestId);
+}
+
+// File-scoped: both suites below share the one throwaway home, so the
+// teardown must outlive the first `describe` (a describe-scoped afterAll
+// would delete the home out from under the second one).
+beforeAll(() => {
+  // The credential store refuses a write for any ref the launching
+  // environment supplies, and `createAgentRuntime` aliases
+  // ANTHROPIC_AUTH_TOKEN onto DEEPSEEK_API_KEY. A developer machine with
+  // either exported would silently turn the config suite below into
+  // read-only assertions, so the suite pins its own environment.
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  home = provisionTestHome();
+});
+
+afterAll(() => {
+  delete process.env.DSH_HOME;
+  cleanupTestHome(home);
+  home = undefined;
+});
+
 describe("AgentBridge over the real runtime", () => {
-  beforeAll(() => {
-    home = provisionTestHome();
-  });
-
-  afterAll(() => {
-    delete process.env.DSH_HOME;
-    cleanupTestHome(home);
-    home = undefined;
-  });
-
   it("starts with starting→ready and lists persisted sessions", { timeout: 60_000 }, async () => {
     const { bridge, lines, dispose } = await bootBridge();
     try {
@@ -203,6 +224,137 @@ describe("AgentBridge over the real runtime", () => {
       await bridge.handleRequestLine(JSON.stringify({ protocolVersion: 1, requestId: "st1", type: "agent.status" }));
       const status = await waitFor(lines, (e) => e.requestId === "st1");
       expect((status.data as { status: string }).status).toBe("ready");
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+/**
+ * The configuration surface against the REAL profile: the mounted
+ * `llm-deepseek` namespace, the real credential store, real files. No model
+ * call is made anywhere in this block — `config.test` needs a live endpoint
+ * and belongs to the manual end-to-end pass.
+ *
+ * The credential assertions read the file for the reference NAME and the
+ * document's own shape; the value is checked only inside this throwaway home,
+ * which is deleted with it, and never in the response.
+ */
+describe("AgentBridge configuration surface over the real runtime", () => {
+  const KEY = "sk-integration-only-000000000000";
+
+  it("describes the mounted namespaces before anything is configured", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const res = await send(bridge, lines, "config.get");
+      expect(res.type).toBe("config.describe");
+      const config = res.data as ApiConfigData;
+      expect(config.provider).toBe("deepseek-official");
+      expect(config.model).not.toBe("");
+      // Nothing stored yet: the adapter's own default is in effect.
+      expect(config.baseUrlOverridden).toBe(false);
+      expect(config.apiKey).toEqual({
+        ref: "DEEPSEEK_API_KEY",
+        configured: false,
+        writable: true,
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("writes base URL, model and key to the throwaway home and never echoes the key", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const res = await send(bridge, lines, "config.save", {
+        baseUrl: "https://gateway.invalid/v1",
+        model: "gpt-4o-mini",
+        apiKey: KEY,
+      });
+      expect(res.type).toBe("config.saved");
+      const data = res.data as { config: ApiConfigData; modelChanged: boolean; apiKeyError?: string };
+      expect(data.apiKeyError).toBeUndefined();
+      expect(data.modelChanged).toBe(true);
+      expect(data.config).toMatchObject({
+        model: "gpt-4o-mini",
+        baseUrl: "https://gateway.invalid/v1",
+        baseUrlOverridden: true,
+        apiKey: { configured: true, writable: true },
+      });
+      // The write-only contract, end to end.
+      expect(JSON.stringify(res.data)).not.toContain(KEY);
+
+      // The settings layer owns `baseURL` under the adapter's namespace.
+      const settings = readFileSync(join(home as string, "settings.yaml"), "utf8");
+      expect(settings).toContain("llm-deepseek");
+      expect(settings).toContain("baseURL");
+      expect(settings).toContain("gateway.invalid");
+      // The model was written through ITS service, into its own namespace.
+      expect(readFileSync(join(home as string, "settings.yaml"), "utf8")).toContain("agent-default-model");
+
+      // The credential document keeps its strict shape, and holds the ref.
+      const credentials = readFileSync(join(home as string, ".credentials.yaml"), "utf8");
+      expect(credentials).toContain("version: 1");
+      expect(credentials).toContain("refs:");
+      expect(credentials).toContain("DEEPSEEK_API_KEY");
+
+      // A later read agrees with the store rather than with our response.
+      const after = await send(bridge, lines, "config.get");
+      expect((after.data as ApiConfigData).apiKey.configured).toBe(true);
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("keeps the stored key when a later save omits it, and clears it only on request", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      // Omitted apiKey — the ordinary "I only changed the model" save.
+      const kept = await send(bridge, lines, "config.save", { model: "deepseek-v4-flash" });
+      const keptData = kept.data as { config: ApiConfigData; apiKeyError?: string };
+      expect(keptData.apiKeyError).toBeUndefined();
+      // `source: "file"` is the whole point: the key resolves from the managed
+      // store, not from a launching environment that would outrank it.
+      expect(keptData.config.apiKey).toEqual({
+        ref: "DEEPSEEK_API_KEY",
+        configured: true,
+        source: "file",
+        writable: true,
+      });
+      const credentialsPath = join(home as string, ".credentials.yaml");
+      expect(readFileSync(credentialsPath, "utf8")).toContain("DEEPSEEK_API_KEY");
+
+      // An empty key means the same thing as an omitted one; the bridge drops
+      // it, so this is really asserting the patch never said "clear".
+      const emptied = await send(bridge, lines, "config.save", { apiKey: "" });
+      expect(emptied.data).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
+      expect(readFileSync(credentialsPath, "utf8")).toContain("DEEPSEEK_API_KEY");
+
+      // The explicit act.
+      const cleared = await send(bridge, lines, "config.save", { clearApiKey: true });
+      const clearedData = cleared.data as { config: ApiConfigData; apiKeyError?: string };
+      expect(clearedData.apiKeyError).toBeUndefined();
+      expect(clearedData.config.apiKey.configured).toBe(false);
+      expect(readFileSync(credentialsPath, "utf8")).not.toContain("DEEPSEEK_API_KEY");
+      // Clearing a credential must not disturb the endpoint beside it.
+      expect(clearedData.config.baseUrl).toBe("https://gateway.invalid/v1");
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("resets an overridden base URL back to the adapter default", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const reset = await send(bridge, lines, "config.save", { baseUrl: "" });
+      const config = (reset.data as { config: ApiConfigData }).config;
+      expect(config.baseUrlOverridden).toBe(false);
+      // "" is the absence of an override, not a broken endpoint: the mounted
+      // adapter row declares no `baseURL`, so nothing surfaces a resolved
+      // value here and the adapter applies its own default at call time. The
+      // panel renders this as an empty field with the default as placeholder,
+      // which is what the copy promises.
+      expect(config.baseUrl).toBe("");
     } finally {
       await dispose();
     }

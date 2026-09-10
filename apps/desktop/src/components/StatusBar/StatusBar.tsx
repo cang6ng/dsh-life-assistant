@@ -1,13 +1,17 @@
 /**
  * StatusBar (§16.6/§27.1): 28 px quiet chrome — left dot + short status text,
- * right caption (`deepseek-v4-flash · 会话已自动保存`, or `Agent 正在回答…`
- * while a turn runs).
+ * right caption (`{model} · 会话已自动保存`, or `Agent 正在回答…` while a turn
+ * runs). The model comes from `state.config`, whose only field this is — the
+ * endpoint and the credential deliberately never reach the store (§44).
  */
 
 import { makeStyles, tokens } from "@fluentui/react-components";
-import { copy } from "../../copy";
+import { copy, statusModelCopy } from "../../copy";
 import { useApp } from "../../appContext";
 import { StatusDot, type StatusDotTone } from "../primitives/StatusDot";
+
+/** Shown until the first `config.get` lands (and whenever it cannot). */
+const FALLBACK_MODEL = "deepseek-v4-flash";
 
 const useStyles = makeStyles({
   bar: {
@@ -61,7 +65,11 @@ export function StatusBar() {
   const { state } = useApp();
   const busy = state.activeTurn !== null;
   const left = STATUS_TEXT[state.runtime.status] ?? state.runtime.status;
-  const right = busy ? copy["status.busy"] : state.runtime.status === "ready" ? copy["status.model"] : "";
+  const right = busy
+    ? copy["status.busy"]
+    : state.runtime.status === "ready"
+      ? statusModelCopy(state.config?.model ?? FALLBACK_MODEL)
+      : "";
   return (
     <footer className={styles.bar}>
       <StatusDot tone={toneFor(state.runtime.status)} />
