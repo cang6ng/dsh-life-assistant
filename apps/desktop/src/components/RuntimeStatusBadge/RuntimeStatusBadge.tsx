@@ -4,10 +4,22 @@
  * expressed by the composer lock, the activity strip and the status bar.
  */
 
-import { Badge } from "@fluentui/react-components";
+import { Badge, Text, makeStyles } from "@fluentui/react-components";
 import type { RuntimeStatus } from "../../protocol/types";
 import { copy } from "../../copy";
 import { StatusDot, type StatusDotTone } from "../primitives/StatusDot";
+
+const useStyles = makeStyles({
+  // The dot + label pair inside the badge. It used to be an inline `style`,
+  // which is the one thing §27.2 does not allow; `Text` carries the slot so
+  // the badge's own caption size and colour are inherited rather than set.
+  content: {
+    display: "inline-flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: "5px",
+  },
+});
 
 function tone(status: RuntimeStatus): StatusDotTone {
   switch (status) {
@@ -31,19 +43,13 @@ const LABEL: Record<RuntimeStatus, string> = {
 };
 
 export function RuntimeStatusBadge({ status }: { status: RuntimeStatus }) {
+  const styles = useStyles();
   return (
     <Badge appearance="tint" size="small">
-      <span
-        style={{
-          display: "inline-flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: "5px",
-        }}
-      >
+      <Text className={styles.content}>
         <StatusDot tone={tone(status)} />
         {LABEL[status]}
-      </span>
+      </Text>
     </Badge>
   );
 }

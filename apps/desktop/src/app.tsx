@@ -1,10 +1,16 @@
 /**
- * App composition root (UI Spec §27 tree): ThemeHost (FluentProvider +
- * follows the OS color scheme, §18; CSS custom properties --chinook-user-
- * bubble / --chinook-accent for the components that need them) and
+ * App composition root (UI Spec §27 tree, in its frozen order):
  * AppStateProvider (useReducer + the entire IPC effect surface: channel
  * subscription with rAF-batched dispatch §14.1, boot reconcile, and the
- * invoke-response → store-action mapping that the host router requires).
+ * invoke-response → store-action mapping that the host router requires)
+ * renders ThemeHost (FluentProvider + §18's resolved scheme; CSS custom
+ * properties --chinook-user-bubble / --chinook-accent for the components
+ * that need them).
+ *
+ * The order matters and is not cosmetic: the appearance preference lives in
+ * the store, so the scheme is only knowable *below* the reducer — the theme
+ * host used to sit above it and follow matchMedia on its own, which is why
+ * there was nowhere for a preference to be read from.
  *
  * Architecture: components call AppActions; AppStateProvider is the only
  * module that imports bridge/client.ts (besides the client module itself).
@@ -20,7 +26,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { FluentProvider, makeStaticStyles, makeStyles } from "@fluentui/react-components";
+import { FluentProvider, makeStaticStyles, makeStyles, tokens } from "@fluentui/react-components";
 import type {
   ApiConfigData,
   ApiConfigModelsDraft,
@@ -32,8 +38,17 @@ import type {
 } from "./protocol/types";
 import { actionFromEvent, type DrawerFilter } from "./store/actions";
 import { reducer } from "./store/reducer";
-import { INITIAL_STATE } from "./store/state";
-import { buildDarkTheme, buildLightTheme, type ThemeTokens } from "./theme";
+import { INITIAL_STATE, type SettingsTab } from "./store/state";
+import {
+  nextPreference,
+  readThemePreference,
+  resolveScheme,
+  writeThemePreference,
+  type Scheme,
+  type ThemePreference,
+  type ThemeStorage,
+} from "./store/themePreference";
+import { buildDarkTheme, buildLightTheme, CHINOOK_ACCENT, type ThemeTokens } from "./theme";
 import { DesktopShell } from "./components/DesktopShell/DesktopShell";
 import { configRequestFailedCopy, copy } from "./copy";
 import {
@@ -76,9 +91,26 @@ const useHostStyles = makeStyles({
   fill: {
     height: "100%",
   },
+  /**
+   * The app's own surface. It has to be an element *inside* FluentProvider:
+   * `tokens.colorNeutralBackground1` compiles to `var(--colorNeutralBackground1)`
+   * and that variable is defined on the provider element, so the rule for
+   * `html, body, #root` above (ancestors of it) can never resolve one. Without
+   * this, the canvas behind the shell keeps WebView2's default white and a
+   * dark launch flashes it before the first paint.
+   */
+  surface: {
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorNeutralForeground1,
+  },
 });
 
-function useColorScheme(): "light" | "dark" {
+/**
+ * The OS scheme, and only the OS scheme. It is consulted solely while the
+ * preference is 追随系统 (see `resolveScheme`) — an explicit 亮色/暗色 choice
+ * must not be yanked around by a Windows theme event.
+ */
+function useSystemScheme(): Scheme {
   const query = "(prefers-color-scheme: dark)";
   const [dark, setDark] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
@@ -90,24 +122,39 @@ function useColorScheme(): "light" | "dark" {
   return dark ? "dark" : "light";
 }
 
-function ThemeHost({ children }: { children: ReactNode }) {
+/**
+ * FluentProvider + the theme host for the resolved scheme (§18). Renders the
+ * shell and publishes the two CSS custom properties the components that
+ * cannot take a token need (§19.1).
+ */
+function ThemeHost({ scheme, children }: { scheme: Scheme; children: ReactNode }) {
   const styles = useHostStyles();
-  const scheme = useColorScheme();
   const theme: ThemeTokens = useMemo(
     () => (scheme === "dark" ? buildDarkTheme() : buildLightTheme()),
     [scheme],
   );
-  const vars = useMemo(() => {
-    const accent = scheme === "dark" ? "#FF9E73" : "#C2410C"; // §19.1 stops
-    return {
-      "--chinook-user-bubble": theme.chinookUserBubbleBg,
-      "--chinook-accent": accent,
-    } as CSSProperties;
-  }, [scheme, theme]);
+  const vars = useMemo(
+    () =>
+      ({
+        "--chinook-user-bubble": theme.chinookUserBubbleBg,
+        "--chinook-accent": CHINOOK_ACCENT[scheme],
+      }) as CSSProperties,
+    [scheme, theme],
+  );
 
   return (
-    <FluentProvider theme={theme} className={styles.fill}>
-      <div style={vars} className={`chinook-app ${styles.fill}`}>
+    // `applyStylesToPortals` must be off. Left at its default, FluentProvider
+    // publishes its own entire root className as the portal `themeClassName`,
+    // so every portal node also receives this provider's surface styles —
+    // `background-color: colorNeutralBackground1` from the provider itself and
+    // the `height: 100%` this file passes as `className`. Fluent positions a
+    // portal node as a full-viewport `position: absolute; inset: 0 auto 0 0;
+    // z-index: 1000000` element, so those two make it an opaque full-screen
+    // sheet: hovering the theme toggle or opening the model Combobox blanked
+    // the whole app. Off, portals get the theme class alone — the CSS
+    // variables — which is all the portaled surfaces need.
+    <FluentProvider theme={theme} className={styles.fill} applyStylesToPortals={false}>
+      <div style={vars} className={`chinook-app ${styles.fill} ${styles.surface}`}>
         {children}
       </div>
     </FluentProvider>
@@ -118,12 +165,68 @@ function ThemeHost({ children }: { children: ReactNode }) {
 // AppStateProvider
 // ---------------------------------------------------------------------------
 
+/** Result of resolving the session a sessionless send must run on (§7.2). */
+type EnsureSessionResult = { ok: true; sessionId: string } | { ok: false; code: string };
+
+/**
+ * The host's Web Storage, or null where it cannot be reached at all. Reading
+ * `window.localStorage` is itself a throw in some policies, which is why the
+ * probe is here and the accessors in themePreference.ts only have to cope
+ * with a `null`.
+ */
+function appStorage(): ThemeStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 function AppStateProvider({ children }: { children: ReactNode }) {
   useStaticStyles();
-  const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  // The stored preference is applied in the lazy initialiser, i.e. within the
+  // first render — reading it in an effect instead would paint the wrong
+  // scheme for a frame on every launch.
+  const [state, dispatch] = useReducer(reducer, INITIAL_STATE, (initial) => ({
+    ...initial,
+    ui: { ...initial.ui, themePreference: readThemePreference(appStorage()) },
+  }));
   const stateRef = useRef(state);
   stateRef.current = state;
-  const [opening, setOpening] = useState(false);
+
+  const systemScheme = useSystemScheme();
+  const scheme = resolveScheme(state.ui.themePreference, systemScheme);
+  const systemSchemeRef = useRef(systemScheme);
+  systemSchemeRef.current = systemScheme;
+
+  // The native-chrome half of the theme. `color-scheme` is what WebView2 reads
+  // to theme the form controls and scrollbars it draws itself; the CSS side
+  // cannot reach them. It is a property write, not a stylesheet, so §27.2's
+  // "styles come from griffel" holds. (index.html sets the same property
+  // before the bundle loads, so the first paint is already right.)
+  useEffect(() => {
+    document.documentElement.style.colorScheme = scheme;
+  }, [scheme]);
+
+  // Persist only what the user actually chose: the mount pass is skipped, so a
+  // user who never opens 外观 leaves no key behind and 追随系统 stays the
+  // implicit default it has always been.
+  const writtenRef = useRef<ThemePreference | null>(null);
+  useEffect(() => {
+    const preference = state.ui.themePreference;
+    const previous = writtenRef.current;
+    writtenRef.current = preference;
+    if (previous === null || previous === preference) return;
+    writeThemePreference(appStorage(), preference);
+  }, [state.ui.themePreference]);
+
+  // A *count*, not a flag: the boot auto-open and a sidebar click can overlap,
+  // and the first to finish must not unlock the composer while the second is
+  // still in flight.
+  const [openingCount, setOpeningCount] = useState(0);
+  const beginOpen = useCallback((): void => setOpeningCount((n) => n + 1), []);
+  const endOpen = useCallback((): void => setOpeningCount((n) => (n > 0 ? n - 1 : 0)), []);
+  const opening = openingCount > 0;
   const retrySessionRef = useRef<string | null>(null);
 
   // ---- restart recovery (Targeted Repair P1) -------------------------------
@@ -223,27 +326,49 @@ function AppStateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (bootedRef.current) return;
     bootedRef.current = true;
+    // §7.2/§13: the whole boot is a restore as far as the screen is concerned,
+    // so `opening` is held from the first frame until the session to restore —
+    // or the fact that there is none — is known. Opening only for the
+    // `session/open` call itself left the session/list round trip painting the
+    // empty state and its chips, which the loader then replaced: exactly the
+    // flash §7.2 forbids, caught on the boot trace. It also means the composer
+    // stays locked for the boot, so a keystroke cannot race the restore into
+    // creating a second session. Cleared in `finally` so a failure cannot
+    // leave the loader up: OPEN_FAILED puts the §13 failure card there.
     void (async () => {
-      await bridge.subscribeEvents(enqueueEvent);
-      // Reconcile the runtime status (events may have raced the subscribe).
-      const statusEnv = await bridge.agentStatus();
-      applyResponse(statusEnv);
-      const listEnv = await bridge.sessionList();
-      if (bridge.envelopeIsError(listEnv)) return;
-      applyResponse(listEnv);
-      const sessions = (listEnv.data as { sessions?: { sessionId: string }[] }).sessions ?? [];
-      const first = sessions[0];
-      if (first !== undefined) {
-        retrySessionRef.current = first.sessionId;
-        const openEnv = await bridge.sessionOpen(first.sessionId);
-        if (bridge.envelopeIsError(openEnv)) {
-          dispatch({ type: "OPEN_FAILED", message: responseError(openEnv) });
-        } else {
-          applyResponse(openEnv);
+      beginOpen();
+      try {
+        await bridge.subscribeEvents(enqueueEvent);
+        // Reconcile the runtime status (events may have raced the subscribe).
+        const statusEnv = await bridge.agentStatus();
+        applyResponse(statusEnv);
+        const listEnv = await bridge.sessionList();
+        if (bridge.envelopeIsError(listEnv)) return;
+        applyResponse(listEnv);
+        const sessions = (listEnv.data as { sessions?: { sessionId: string }[] }).sessions ?? [];
+        const first = sessions[0];
+        // Not if a session is bound already: a send can create one while
+        // `session/list` is in flight, and auto-opening over that would
+        // replace the conversation on screen and swallow the message
+        // streaming into it.
+        if (first !== undefined && stateRef.current.activeSessionId === null) {
+          retrySessionRef.current = first.sessionId;
+          try {
+            const openEnv = await bridge.sessionOpen(first.sessionId);
+            if (bridge.envelopeIsError(openEnv)) {
+              dispatch({ type: "OPEN_FAILED", message: responseError(openEnv) });
+            } else {
+              applyResponse(openEnv);
+            }
+          } catch (e) {
+            dispatch({ type: "OPEN_FAILED", message: String(e) });
+          }
         }
+      } finally {
+        endOpen();
       }
     })();
-  }, [applyResponse, enqueueEvent, responseError]);
+  }, [applyResponse, enqueueEvent, responseError, beginOpen, endOpen]);
 
   // ---- actions -------------------------------------------------------------
 
@@ -252,7 +377,7 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       const st = stateRef.current;
       if (st.activeTurn !== null) return; // §16.5 rows are disabled anyway
       retrySessionRef.current = sessionId;
-      setOpening(true);
+      beginOpen();
       try {
         const env = await bridge.sessionOpen(sessionId);
         if (bridge.envelopeIsError(env)) {
@@ -263,19 +388,68 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         dispatch({ type: "OPEN_FAILED", message: String(e) });
       } finally {
-        setOpening(false);
+        endOpen();
       }
     },
-    [applyResponse, responseError],
+    [applyResponse, responseError, beginOpen, endOpen],
   );
 
-  const newSession = useCallback(async (): Promise<void> => {
-    const st = stateRef.current;
-    if (st.activeTurn !== null) return;
-    const env = await bridge.sessionCreate();
-    if (bridge.envelopeIsError(env)) return;
-    applyResponse(env);
+  /**
+   * In-flight create. Concurrent callers share it rather than each creating a
+   * session: the typed composer and the suggestion chips can both send from
+   * the no-conversation screen (§7.2), and 新会话 / Ctrl+N can land while such
+   * a send is being set up. Two creates would leave a stray empty session
+   * behind — or, if the second response arrives mid-turn, a session the
+   * reducer drops on the floor entirely.
+   *
+   * The response is applied *here*, once, so every joiner sees the same bound
+   * session, and the promise resolves with the id: a joiner resuming in a
+   * microtask cannot rely on `stateRef` having caught up with the dispatch.
+   */
+  const createRef = useRef<Promise<EnsureSessionResult> | null>(null);
+
+  const createSession = useCallback((): Promise<EnsureSessionResult> => {
+    const inFlight = createRef.current;
+    if (inFlight !== null) return inFlight;
+    const attempt = (async (): Promise<EnsureSessionResult> => {
+      try {
+        const env = await bridge.sessionCreate();
+        if (bridge.envelopeIsError(env)) {
+          return { ok: false, code: bridge.envelopeError(env).code };
+        }
+        applyResponse(env);
+        const data = env.data as { session?: { sessionId?: string } };
+        const created = data?.session?.sessionId;
+        return created === undefined
+          ? { ok: false, code: "NOT_FOUND" }
+          : { ok: true, sessionId: created };
+      } catch {
+        // A rejected invoke (host gone) is not an error envelope. Mapped here
+        // so the caller reports 发送失败 instead of throwing into nowhere —
+        // and so a rejection is never what the next caller joins.
+        return { ok: false, code: "TRANSPORT" };
+      } finally {
+        createRef.current = null; // settled: a retry starts a fresh attempt
+      }
+    })();
+    createRef.current = attempt;
+    return attempt;
   }, [applyResponse]);
+
+  const newSession = useCallback(async (): Promise<void> => {
+    if (stateRef.current.activeTurn !== null) return;
+    // Shares the in-flight create: asking for 新会话 while a sessionless send
+    // is being set up yields the session that send just created — which is a
+    // new one, and sending into it is what the user meant either way.
+    await createSession();
+  }, [createSession]);
+
+  /** The session a sessionless send runs on: the active one, or a fresh one. */
+  const ensureSession = useCallback((): Promise<EnsureSessionResult> => {
+    const active = stateRef.current.activeSessionId;
+    if (active !== null) return Promise.resolve({ ok: true, sessionId: active });
+    return createSession();
+  }, [createSession]);
 
   const send = useCallback(
     async (text: string): Promise<SendResult> => {
@@ -285,26 +459,25 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       }
       const trimmed = text.trim();
       if (trimmed.length === 0) return { ok: false, code: "INVALID_ARGUMENT" };
-      let sessionId = st.activeSessionId;
-      if (sessionId === null) {
-        // A chip on the empty, session-less state creates one first (§7.2).
-        const createEnv = await bridge.sessionCreate();
-        if (bridge.envelopeIsError(createEnv)) {
-          return { ok: false, code: bridge.envelopeError(createEnv).code };
-        }
-        applyResponse(createEnv);
-        const data = createEnv.data as { session?: { sessionId?: string } };
-        const created = data?.session?.sessionId;
-        if (created === undefined) return { ok: false, code: "NOT_FOUND" };
-        sessionId = created;
+      // The typed composer and the suggestion chips both reach a
+      // no-conversation screen; either creates the session first (§7.2).
+      const session = await ensureSession();
+      if (!session.ok) return { ok: false, code: session.code };
+      let env: Envelope;
+      try {
+        env = await bridge.turnSend(session.sessionId, trimmed);
+      } catch {
+        // A rejected invoke is the §17.2 transport failure too — report it as
+        // one so the composer says 发送失败，请重试 with the text still in the
+        // box, rather than rejecting a promise nobody is catching.
+        return { ok: false, code: "TRANSPORT" };
       }
-      const env = await bridge.turnSend(sessionId, trimmed);
       if (bridge.envelopeIsError(env)) {
         return { ok: false, code: bridge.envelopeError(env).code };
       }
       return { ok: true };
     },
-    [applyResponse],
+    [ensureSession],
   );
 
   const retryOpen = useCallback(async (): Promise<void> => {
@@ -452,6 +625,21 @@ function AppStateProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "DRAWER_SET_FILTER", filter }),
       closeDrawer: () => dispatch({ type: "DRAWER_CLOSE" }),
       toggleStrip: (turnId: number) => dispatch({ type: "STRIP_TOGGLE", turnId }),
+      setSettingsTab: (tab: SettingsTab) => dispatch({ type: "SETTINGS_TAB_SET", tab }),
+      setThemePreference: (preference: ThemePreference) =>
+        dispatch({ type: "THEME_SET", preference }),
+      // Reads the *current* scheme, not the stored preference: while following
+      // the system there is no preference to invert, and the button must still
+      // do the obvious thing. Both reads come from refs so the action identity
+      // (and therefore the whole actions memo) stays stable.
+      toggleTheme: () =>
+        dispatch({
+          type: "THEME_SET",
+          preference: nextPreference(
+            stateRef.current.ui.themePreference,
+            systemSchemeRef.current,
+          ),
+        }),
       openConfig: () => dispatch({ type: "CONFIG_OPEN" }),
       closeConfig: () => dispatch({ type: "CONFIG_CLOSE" }),
       loadApiConfig,
@@ -474,11 +662,18 @@ function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AppValue>(
-    () => ({ state, opening, actions }),
-    [state, opening, actions],
+    () => ({ state, opening, scheme, actions }),
+    [state, opening, scheme, actions],
   );
 
-  return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
+  // §27's tree puts the store above the theme host, and the dependency runs
+  // that way too: the scheme is `state.ui.themePreference` resolved against
+  // the OS, so only this component can compute it.
+  return (
+    <AppCtx.Provider value={value}>
+      <ThemeHost scheme={scheme}>{children}</ThemeHost>
+    </AppCtx.Provider>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -488,10 +683,8 @@ function AppStateProvider({ children }: { children: ReactNode }) {
 export function App() {
   useStaticStyles();
   return (
-    <ThemeHost>
-      <AppStateProvider>
-        <DesktopShell />
-      </AppStateProvider>
-    </ThemeHost>
+    <AppStateProvider>
+      <DesktopShell />
+    </AppStateProvider>
   );
 }

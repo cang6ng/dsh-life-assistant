@@ -162,10 +162,56 @@ describe("§44 — the model credential stays out of presentation state", () => 
   });
 
   it("never reads the key input back out of the DOM", () => {
-    const panel = code("components/ApiConfig/ApiConfigPanel.tsx");
-    for (const banned of ["querySelector", "defaultValue", "localStorage", "sessionStorage"]) {
-      expect(panel, banned).not.toContain(banned);
+    // The settings surface moved to components/Settings/, but the file that
+    // handles the credential did not — it is still this one, so this is where
+    // the guard belongs. The renderer that wraps it is checked too, so a
+    // "helpful" refactor cannot read the field out from a parent instead.
+    for (const rel of [
+      "components/ApiConfig/ApiConfigPanel.tsx",
+      "components/Settings/SettingsPanel.tsx",
+    ]) {
+      const source = code(rel);
+      for (const banned of ["querySelector", "defaultValue", "localStorage", "sessionStorage"]) {
+        expect(source, `${rel}: ${banned}`).not.toContain(banned);
+      }
     }
+  });
+});
+
+describe("§18 — the appearance preference is one key, spelled the same in both places", () => {
+  const desktop = join(REPO, "apps", "desktop");
+  const themePref = readFileSync(join(DESKTOP_SRC, "store", "themePreference.ts"), "utf8");
+  const indexHtml = readFileSync(join(desktop, "index.html"), "utf8");
+  /** Comments stripped, so a documented non-rule is not a violation. */
+  const code = (rel: string): string =>
+    readFileSync(join(DESKTOP_SRC, rel), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("declares the storage key once in the module and once in the pre-paint script", () => {
+    // index.html runs before the bundle, so it cannot import the module and
+    // the literal is necessarily duplicated. Pinned so the two cannot drift:
+    // a mismatch would leave the app flashing the wrong scheme on every
+    // launch while React itself agreed with the stored preference.
+    const literal = themePref.match(/THEME_KEY\s*=\s*"([^"]+)"/)?.[1];
+    expect(literal).toBeTruthy();
+    expect(indexHtml).toContain(`"${literal}"`);
+  });
+
+  it("tells the engine the document supports both schemes, before any CSS lands", () => {
+    expect(indexHtml).toMatch(/<meta\s+name="color-scheme"\s+content="light dark"/);
+    // The pre-paint script is the only way to avoid a white first frame in
+    // dark, so it must also exist — the meta alone only sets the canvas.
+    expect(indexHtml).toMatch(/documentElement\.style\.colorScheme/);
+  });
+
+  it("keeps the preference display-only — nothing about it reaches the bridge", () => {
+    // A display preference is not host state: it must not be a protocol type
+    // or a bridge call, or it would travel the credential channel's neighbours.
+    const types = code("protocol/types.ts");
+    expect(types).not.toMatch(/themePreference|colorScheme|theme/i);
+    const client = code("bridge/client.ts");
+    expect(client).not.toMatch(/theme/i);
   });
 });
 
@@ -183,5 +229,29 @@ describe("§59 — reasoning content never reaches the presentation", () => {
     for (const banned of ["reasoning_delta", "reasoning-delta", "chain-of-thought", "reasoning_block", "reasoning-delta:"]) {
       expect(react).not.toContain(banned);
     }
+  });
+});
+
+describe("§4.3 — the custom window chrome can actually move the window", () => {
+  // The window has no native decorations (`decorations: false`), so its only
+  // move handle is a `data-tauri-drag-region` element in the title bar: the
+  // core script turns a mousedown on one into
+  // `invoke('plugin:window|start_dragging')`, which the ACL gates. That command
+  // is NOT part of `core:default`, and the rejection is swallowed by the script
+  // — so dropping the grant makes the whole window silently undraggable.
+  const capabilities = JSON.parse(
+    readFileSync(join(REPO, "apps", "desktop", "src-tauri", "capabilities", "default.json"), "utf8"),
+  ) as { permissions: string[] };
+
+  it("grants core:window:allow-start-dragging", () => {
+    expect(capabilities.permissions).toContain("core:window:allow-start-dragging");
+  });
+
+  it("marks the title bar and its brand block as drag regions", () => {
+    // A bare attribute only fires when the click's target IS that element, so
+    // the brand's own text (a child span) needs the "deep" form to drag it.
+    const titleBar = readFileSync(join(DESKTOP_SRC, "components", "TitleBar", "TitleBar.tsx"), "utf8");
+    expect(titleBar).toMatch(/data-tauri-drag-region\b/);
+    expect(titleBar).toContain('data-tauri-drag-region="deep"');
   });
 });

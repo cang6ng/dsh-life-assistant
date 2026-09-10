@@ -15,7 +15,9 @@
     "pretest": "tsx scripts/bootstrap.ts && tsc -p plugins/chinook/tsconfig.build.json",
     "chinook-agent": "tsx apps/cli/src/main.ts",
     "prechinook-agent": "tsc -p plugins/chinook/tsconfig.build.json",
-    "dev": "pnpm run chinook-agent"
+    "dev": "pnpm run chinook-agent",
+    "desktop": "node scripts/desktop-dev.mjs",
+    "desktop:build": "cd apps/desktop && tauri build"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

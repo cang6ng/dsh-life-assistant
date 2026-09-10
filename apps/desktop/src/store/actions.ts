@@ -17,6 +17,8 @@ import type {
   TimelineRow,
   TurnEndReason,
 } from "../protocol/types";
+import type { SettingsTab } from "./state";
+import type { ThemePreference } from "./themePreference";
 
 export type DrawerFilter = "all" | "tools";
 
@@ -75,7 +77,11 @@ export type StoreAction =
   | { type: "CONFIG_CLOSE" }
   | { type: "CONFIG_TOGGLE" }
   /** Cache the model id the status bar renders (no credential ever rides here). */
-  | { type: "CONFIG_MODEL"; model: string };
+  | { type: "CONFIG_MODEL"; model: string }
+  | { type: "SETTINGS_TAB_SET"; tab: SettingsTab }
+  /** §18 as amended. The reducer only stores it; the side effects (storage,
+   *  `color-scheme`, the OS listener's effect) belong to the action creator. */
+  | { type: "THEME_SET"; preference: ThemePreference };
 
 // ---------------------------------------------------------------------------
 // wire adapter
@@ -90,9 +96,10 @@ const str = (v: unknown): string | undefined => (typeof v === "string" ? v : und
 const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
 
 /**
- * Map one streaming envelope (no requestId) to a store action. Returns null
- * for envelope types the store does not handle (future-proofing: unknown
- * types are ignored, never crash the reducer).
+ * Map one envelope to a store action — streaming events (no requestId) and the
+ * responses the host router resolves an invoke with. Returns null for envelope
+ * types the store does not handle (future-proofing: unknown types are ignored,
+ * never crash the reducer).
  */
 export function actionFromEvent(env: Envelope, ts: number): StoreAction | null {
   const data = toRecord(env.data);
@@ -101,7 +108,14 @@ export function actionFromEvent(env: Envelope, ts: number): StoreAction | null {
   const turnId = num(env.turnId);
 
   switch (env.type) {
-    case "runtime/status": {
+    // `runtime/status` is the pushed event; `agent.status` is the RESPONSE to
+    // the boot reconcile's status read (app.tsx) and carries the same payload.
+    // Without the response case that reconcile quietly did nothing, so a
+    // frontend that subscribed to the event channel *after* the bridge
+    // announced `ready` — a cold webview, or any page reload — sat at
+    // 正在启动… forever, with a live runtime behind it.
+    case "runtime/status":
+    case "agent.status": {
       const status = str(data.status) as RuntimeStatus | undefined;
       if (!status) return null;
       return { type: "RUNTIME_STATUS", status, detail: str(data.detail) };

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="DSH Life Assistant" width="240">
+</p>
+
 # DSH Life Assistant
 
 [English](README.md) | 简体中文
@@ -144,6 +148,7 @@ dsh-life-assistant/
 ├── profiles/chinook/     # Chinook Music 领域的 DSH profile 装配
 ├── scripts/              # bootstrap 与构建辅助脚本
 ├── tests/                # Vitest 套件：插件、服务、桥、架构
+├── docs/                 # 项目 logo
 └── assets/screenshots/   # 项目截图
 ```
 
@@ -184,11 +189,10 @@ pnpm chinook-agent
 ### 5. 桌面开发
 
 ```bash
-cd apps/desktop
-node ../../node_modules/@tauri-apps/cli/tauri.js dev
+pnpm desktop
 ```
 
-该命令构建 React 前端、编译 Rust 宿主并打开带热重载的桌面窗口。
+该命令构建 React 前端、编译 Rust 宿主并打开带热重载的桌面窗口。启动器会清理上一次运行残留的进程,并在退出(包括 Ctrl+C)时结束整棵进程树。
 
 ### 6. 测试
 

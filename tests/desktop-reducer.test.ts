@@ -102,6 +102,20 @@ describe("desktop reducer — session lifecycle", () => {
     expect(s.activeTurn?.turnId).toBe(1);
     expect(s.conversation.items).toHaveLength(2);
   });
+
+  it("session/created is visible in the sidebar even when the list never resolved", () => {
+    // Boot with a failed `session/list` leaves `sessions` null; the session a
+    // sessionless send then creates must still appear (§7.2 — the created
+    // session IS the conversation the user is looking at).
+    expect(INITIAL_STATE.sessions).toBeNull();
+    const s = reducer(INITIAL_STATE, { type: "SESSION_CREATED", session: SESSION_A });
+    expect(s.sessions).toEqual([SESSION_A]);
+    // and a second create prepends without duplicating
+    const s2 = reducer(s, { type: "SESSION_CREATED", session: SESSION_B });
+    expect(s2.sessions).toEqual([SESSION_B, SESSION_A]);
+    const s3 = reducer(s2, { type: "SESSION_CREATED", session: SESSION_A });
+    expect(s3.sessions).toEqual([SESSION_A, SESSION_B]);
+  });
 });
 
 describe("desktop reducer — turn/start (§48)", () => {
@@ -417,6 +431,24 @@ describe("desktop reducer — ui flags", () => {
 
     expect(reducer(base, { type: "CONFIG_TOGGLE" }).ui.configOpen).toBe(true);
     expect(reducer(opened, { type: "CONFIG_TOGGLE" }).ui.configOpen).toBe(false);
+  });
+
+  it("carries the appearance preference and the settings tab (§18 as amended)", () => {
+    // The initial value is deterministic and never read from storage — app.tsx
+    // seeds the persisted value through the reducer's lazy initialiser.
+    expect(INITIAL_STATE.ui).toMatchObject({
+      themePreference: "system",
+      settingsTab: "general",
+    });
+
+    const dark = reducer(INITIAL_STATE, { type: "THEME_SET", preference: "dark" });
+    expect(dark.ui.themePreference).toBe("dark");
+    // Setting the same preference again is a no-op on the value (the effect
+    // that persists it is keyed on the field, so it must not flap).
+    expect(reducer(dark, { type: "THEME_SET", preference: "dark" }).ui.themePreference).toBe("dark");
+    expect(reducer(dark, { type: "THEME_SET", preference: "system" }).ui.themePreference).toBe("system");
+
+    expect(reducer(INITIAL_STATE, { type: "SETTINGS_TAB_SET", tab: "model" }).ui.settingsTab).toBe("model");
   });
 });
 

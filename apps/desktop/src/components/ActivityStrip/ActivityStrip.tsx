@@ -12,7 +12,7 @@
  * `n=0` renders no strip, except `blocked` which renders `未生成回答`.
  */
 
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { Button, makeStyles, tokens } from "@fluentui/react-components";
 import type { ConversationItem } from "../../protocol/types";
 import { copy, stripCopy } from "../../copy";
 import { ToolRow } from "../ToolRow/ToolRow";
@@ -26,6 +26,11 @@ const useStyles = makeStyles({
     gap: "4px",
     maxWidth: "100%",
   },
+  // §11.3's line box: 13/18 quiet text with the 展开/收起 cue on the right.
+  // The two clickable variants are Fluent `Button`s, which bring the pointer,
+  // the hover feedback and the focus ring; what is pinned here is the type and
+  // the flush box, because this line sits in the conversation flow rather than
+  // on a toolbar. `quiet` reuses the same box for the non-clickable line.
   chipLine: {
     display: "flex",
     flexDirection: "row",
@@ -34,18 +39,11 @@ const useStyles = makeStyles({
     fontSize: "13px",
     lineHeight: "18px",
     color: tokens.colorNeutralForeground2,
-    cursor: "pointer",
-    border: "none",
-    background: "transparent",
+    height: "auto",
+    minHeight: "22px",
     padding: "0",
-    fontFamily: "inherit",
-    borderRadius: tokens.borderRadiusMedium,
     "&:hover .chinook-strip-cue": {
       color: tokens.colorBrandForeground1,
-    },
-    "&:focus-visible": {
-      outline: `1px solid ${tokens.colorBrandStroke1}`,
-      outlineOffset: "2px",
     },
   },
   quiet: {
@@ -130,10 +128,16 @@ export function ActivityStrip({ item, live, expanded, onToggleExpand }: Activity
     const label = kind === "no-answer" ? copy["strip.noAnswer"] : stripCopy(kind, n);
     return (
       <div className={styles.area}>
-        <button type="button" className={styles.chipLine} onClick={onToggleExpand} aria-expanded={false}>
+        <Button
+          appearance="subtle"
+          size="small"
+          className={styles.chipLine}
+          onClick={onToggleExpand}
+          aria-expanded={false}
+        >
           <span>{label}</span>
           <span className={`${styles.cue} chinook-strip-cue`}>{copy["strip.expand"]}</span>
-        </button>
+        </Button>
       </div>
     );
   }
@@ -142,9 +146,15 @@ export function ActivityStrip({ item, live, expanded, onToggleExpand }: Activity
       {tools.map((tool) => (
         <ToolRow key={tool.callId} tool={tool} running={false} />
       ))}
-      <button type="button" className={styles.chipLine} onClick={onToggleExpand} aria-expanded={true}>
+      <Button
+        appearance="subtle"
+        size="small"
+        className={styles.chipLine}
+        onClick={onToggleExpand}
+        aria-expanded={true}
+      >
         <span className={`${styles.cue} chinook-strip-cue`}>{copy["strip.collapse"]}</span>
-      </button>
+      </Button>
     </div>
   );
 }

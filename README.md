@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="DSH Life Assistant" width="240">
+</p>
+
 # DSH Life Assistant
 
 English | [简体中文](README.zh-CN.md)
@@ -144,6 +148,7 @@ dsh-life-assistant/
 ├── profiles/chinook/     # DSH profile wiring for the Chinook Music domain
 ├── scripts/              # bootstrap and build helpers
 ├── tests/                # Vitest suites: plugin, services, bridge, architecture
+├── docs/                 # Project logo
 └── assets/screenshots/   # Project screenshots
 ```
 
@@ -184,11 +189,10 @@ pnpm chinook-agent
 ### 5. Desktop development
 
 ```bash
-cd apps/desktop
-node ../../node_modules/@tauri-apps/cli/tauri.js dev
+pnpm desktop
 ```
 
-This builds the React frontend, compiles the Rust host and opens the desktop window with hot reload.
+This builds the React frontend, compiles the Rust host and opens the desktop window with hot reload. The launcher clears anything a previous run left behind and tears down the whole process tree on exit, including Ctrl+C.
 
 ### 6. Tests
 

@@ -8,15 +8,13 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { Card, makeStyles, tokens } from "@fluentui/react-components";
 import type { ToolActivity } from "../../protocol/types";
 import { copy } from "../../copy";
 import { metaFor, summarizeTool, toolErrorCaption } from "../../toolMeta";
 import { ToolRowChip } from "../primitives/ToolRowChip";
 import { ToolDetailPanel } from "./ToolDetailPanel";
-import { ensureKeyframes, FADE_IN } from "../../animation";
-
-ensureKeyframes();
+import { FADE_IN } from "../../motion";
 
 const useStyles = makeStyles({
   host: {
@@ -26,13 +24,18 @@ const useStyles = makeStyles({
     minWidth: "0",
   },
   // §10.4 expanded: the panel owns the border, the header line is flush.
+  // Fluent's `Card appearance="outline"` already draws the 6 px radius and the
+  // `colorNeutralStroke1` hairline (as its `::after` overlay, so a CardPreview
+  // could sit under it); what is ours is the box — §10.4's tighter padding, the
+  // opaque surface, and the gap between the header chip and the detail rows.
   panel: {
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderRadius: tokens.borderRadiusMedium,
+    "--fui-Card--size": "6px",
     padding: "3px 8px 8px",
     backgroundColor: tokens.colorNeutralBackground1,
+    maxWidth: "100%",
   },
-  // §21: 150 ms opacity cross-fade when a row flips to its final state.
+  // §21: 150 ms opacity cross-fade when a row flips to its final state
+  // (keyframes in motion.ts).
   flip: {
     animationName: FADE_IN,
     animationDuration: "150ms",
@@ -82,10 +85,10 @@ export function ToolRow({ tool, running }: ToolRowProps) {
   return (
     <div className={running ? styles.host : `${styles.host} ${styles.flip}`}>
       {open && !running ? (
-        <div className={styles.panel}>
+        <Card appearance="outline" className={styles.panel}>
           {chip}
           <ToolDetailPanel tool={tool} />
-        </div>
+        </Card>
       ) : (
         chip
       )}

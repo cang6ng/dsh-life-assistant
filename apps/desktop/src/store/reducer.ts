@@ -148,7 +148,10 @@ export function reducer(state: RootState, action: StoreAction): RootState {
         ...state,
         // A completed bind disproves the restore hold / restore-failure error.
         runtime: boundRuntime(state),
-        sessions: state.sessions ? [session, ...state.sessions.filter((x) => x.sessionId !== session.sessionId)] : state.sessions,
+        // A null list (the boot `session/list` failed) becomes a one-item list
+        // rather than staying null — otherwise the session the user just
+        // created is invisible in the sidebar.
+        sessions: [session, ...(state.sessions ?? []).filter((x) => x.sessionId !== session.sessionId)],
         activeSessionId: session.sessionId,
         activeTurn: null,
         conversation: { items: [], log: [], openError: null },
@@ -354,6 +357,10 @@ export function reducer(state: RootState, action: StoreAction): RootState {
       return { ...state, ui: { ...state.ui, configOpen: !state.ui.configOpen } };
     case "CONFIG_MODEL":
       return { ...state, config: { model: action.model } };
+    case "SETTINGS_TAB_SET":
+      return { ...state, ui: { ...state.ui, settingsTab: action.tab } };
+    case "THEME_SET":
+      return { ...state, ui: { ...state.ui, themePreference: action.preference } };
     case "STRIP_TOGGLE":
       return {
         ...state,

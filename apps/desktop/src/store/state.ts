@@ -10,6 +10,10 @@ import type {
   SessionSummary,
   TimelineRow,
 } from "../protocol/types";
+import type { ThemePreference } from "./themePreference";
+
+/** The settings surface's two tabs (§29 as amended by v1.0.4). */
+export type SettingsTab = "general" | "model";
 
 export interface RootState {
   /** 'busy' is derived (activeTurn !== null), never stored (§16.1).
@@ -42,8 +46,15 @@ export interface RootState {
     drawerFilter: "all" | "tools";
     /** §11.3 strip expansion, keyed by turn id. */
     expandedTurnIds: Record<string, boolean>;
-    /** The model-settings overlay (ApiConfigPanel) is open. */
+    /** The settings surface (SettingsPanel) is open. */
     configOpen: boolean;
+    /** Which of its two tabs is showing. */
+    settingsTab: SettingsTab;
+    /**
+     * §18 as amended: 追随系统 / 亮色 / 暗色. Display-only — it never reaches
+     * the bridge and is the app's only persisted client-side value.
+     */
+    themePreference: ThemePreference;
   };
 }
 
@@ -54,7 +65,17 @@ export const INITIAL_STATE: RootState = {
   conversation: { items: [], log: [], openError: null },
   activeTurn: null,
   config: null,
-  ui: { drawerOpen: false, drawerFilter: "all", expandedTurnIds: {}, configOpen: false },
+  ui: {
+    drawerOpen: false,
+    drawerFilter: "all",
+    expandedTurnIds: {},
+    configOpen: false,
+    settingsTab: "general",
+    // Deterministic, and never read from storage here: this module is
+    // imported directly by the reducer tests, and app.tsx seeds the stored
+    // value through the reducer's lazy initialiser instead.
+    themePreference: "system",
+  },
 };
 
 /**

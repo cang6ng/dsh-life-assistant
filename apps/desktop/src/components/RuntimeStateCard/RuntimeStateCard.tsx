@@ -12,6 +12,7 @@ import {
   AccordionItem,
   AccordionPanel,
   Button,
+  Card,
   Spinner,
   Text,
   makeStyles,
@@ -28,6 +29,8 @@ const useStyles = makeStyles({
     justifyContent: "center",
     backgroundColor: tokens.colorNeutralBackground1,
   },
+  // §16's centered card. `Card appearance="outline"` brings the 6 px radius
+  // and the `colorNeutralStroke1` hairline; the box is ours.
   card: {
     display: "flex",
     flexDirection: "column",
@@ -36,6 +39,7 @@ const useStyles = makeStyles({
     maxWidth: "440px",
     padding: "28px 36px",
     textAlign: "center",
+    backgroundColor: tokens.colorNeutralBackground1,
   },
   title: {
     fontSize: "17px",
@@ -137,7 +141,7 @@ export function RuntimeStateCard({ variant }: { variant: RuntimeCardVariant }) {
 
   return (
     <div className={styles.host}>
-      <div className={styles.card} role="status">
+      <Card appearance="outline" className={styles.card} role="status">
         {busy && <Spinner size="medium" aria-hidden="true" />}
         <Text className={styles.title}>{title}</Text>
         {sub !== null && <Text className={styles.sub}>{sub}</Text>}
@@ -166,7 +170,7 @@ export function RuntimeStateCard({ variant }: { variant: RuntimeCardVariant }) {
           </div>
         )}
         {retryFailed && <Text className={styles.caption}>{copy["card.error.retryFailed"]}</Text>}
-      </div>
+      </Card>
     </div>
   );
 }

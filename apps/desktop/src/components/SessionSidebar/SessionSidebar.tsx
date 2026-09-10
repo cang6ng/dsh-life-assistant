@@ -1,13 +1,26 @@
 /**
  * SessionSidebar (§5/§27.1): 264 px list — NewSessionButton + SessionList
  * (today/yesterday/earlier groups). SessionList/SessionGroup are named
- * components of this node (rows are buttons; ↑/↓ move focus through them).
- * The rail variant (< 900 px, §22) is owned by DesktopShell — this node
- * renders the full-width panel only.
+ * components of this node. The rail variant (< 900 px, §22) is owned by
+ * DesktopShell — this node renders the full-width panel only.
+ *
+ * The rows are a Fluent `FlatTree`. The hand-rolled ↑/↓ keydown handler that
+ * used to live here is gone: roving focus is tabster's job now, which is both
+ * less code and correct in the corners the old one got wrong (it picked the
+ * next element by `querySelectorAll("button")`, so it also walked into any
+ * other button that happened to be inside the list).
+ *
+ * **One tree per day group, not one tree with branch items.** The groups are
+ * always-visible section headings, not disclosures — §5 gives them no
+ * chevron and no collapsed state — so modelling them as branch tree items
+ * would either add a focusable control that does nothing when clicked or add
+ * a collapsing behaviour the design does not have. As separate labelled
+ * trees, every `tree` contains only `treeitem`s, and the group name is the
+ * tree's accessible name. The trade-off is that ↑/↓ stops at a group
+ * boundary rather than running the whole list; Tab moves between groups.
  */
 
-import { useRef, type KeyboardEvent } from "react";
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { makeStyles, tokens, FlatTree, Text } from "@fluentui/react-components";
 import type { SessionSummary } from "../../protocol/types";
 import { copy } from "../../copy";
 import { dayGroup, type DayGroup } from "../../util/format";
@@ -27,10 +40,20 @@ const useStyles = makeStyles({
   list: {
     flex: "1 1 auto",
     overflowY: "auto",
+    // Stated rather than left to the spec's promotion rule (one non-visible
+    // axis makes the other compute to `auto`): a row that outgrows the 264 px
+    // column must ellipsize inside itself, never turn the whole list into a
+    // horizontally scrolled region — which is how a long session title once
+    // clipped the start of every other title's text.
+    overflowX: "hidden",
     padding: "0 8px 12px",
     display: "flex",
     flexDirection: "column",
     gap: "2px",
+  },
+  group: {
+    display: "flex",
+    flexDirection: "column",
   },
   groupLabel: {
     fontSize: "12px",
@@ -38,25 +61,54 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     letterSpacing: "0.2px",
     padding: "12px 10px 4px",
+    display: "block",
   },
 });
 
-function SessionGroup({ label, items, locked }: { label: string; items: SessionSummary[]; locked: boolean }) {
+interface SidebarProps {
+  /**
+   * Called after the user opens or creates a session. The rail variant (§22)
+   * passes a closer so the overlay panel dismisses on selection; the docked
+   * sidebar passes nothing, because there is no panel to dismiss.
+   */
+  onNavigate?: () => void;
+}
+
+function SessionGroup({
+  label,
+  items,
+  locked,
+  onNavigate,
+}: {
+  label: string;
+  items: SessionSummary[];
+  locked: boolean;
+  onNavigate?: () => void;
+}) {
   const styles = useStyles();
   const { state, actions } = useApp();
   return (
-    <div role="group" aria-label={label}>
-      <div className={styles.groupLabel}>{label}</div>
-      {items.map((session) => (
-        <SessionItem
-          key={session.sessionId}
-          session={session}
-          active={session.sessionId === state.activeSessionId}
-          locked={locked}
-          groupLabel={label}
-          onOpen={(id) => void actions.openSession(id)}
-        />
-      ))}
+    <div className={styles.group}>
+      {/* The heading is the tree's visible twin; the tree carries the same
+          string as its aria-label, so the group is announced once on entry. */}
+      <Text className={styles.groupLabel}>{label}</Text>
+      <FlatTree aria-label={label} appearance="subtle" size="small">
+        {items.map((session, index) => (
+          <SessionItem
+            key={session.sessionId}
+            session={session}
+            active={session.sessionId === state.activeSessionId}
+            locked={locked}
+            groupLabel={label}
+            index={index}
+            total={items.length}
+            onOpen={(id) => {
+              void actions.openSession(id);
+              onNavigate?.();
+            }}
+          />
+        ))}
+      </FlatTree>
     </div>
   );
 }
@@ -68,8 +120,7 @@ const GROUP_LABEL: Record<DayGroup, string> = {
   earlier: copy["sidebar.group.earlier"],
 };
 
-function SessionList({ sessions }: { sessions: SessionSummary[] | null }) {
-  const styles = useStyles();
+function SessionList({ sessions, onNavigate }: { sessions: SessionSummary[] | null; onNavigate?: () => void }) {
   const { state } = useApp();
   const locked = state.activeTurn !== null;
   const buckets: Record<DayGroup, SessionSummary[]> = { today: [], yesterday: [], earlier: [] };
@@ -77,42 +128,36 @@ function SessionList({ sessions }: { sessions: SessionSummary[] | null }) {
     for (const session of sessions) buckets[dayGroup(session.createdAt)].push(session);
   }
   const rows = GROUP_ORDER.filter((g) => buckets[g].length > 0);
-  if (rows.length === 0) {
-    return <div className={styles.list} />;
-  }
+  // An empty list is an empty scroller, not an empty state: the empty-state
+  // card (§16) belongs to the conversation column, and a sidebar that grows a
+  // placeholder would push the ＋ button around (§5.1 keeps it pinned on top).
+  if (rows.length === 0) return null;
   return (
-    <div className={styles.list}>
+    <>
       {rows.map((group) => (
-        <SessionGroup key={group} label={GROUP_LABEL[group]} items={buckets[group]} locked={locked} />
+        <SessionGroup
+          key={group}
+          label={GROUP_LABEL[group]}
+          items={buckets[group]}
+          locked={locked}
+          onNavigate={onNavigate}
+        />
       ))}
-    </div>
+    </>
   );
 }
 
-export function SessionSidebar() {
+export function SessionSidebar({ onNavigate }: SidebarProps) {
   const styles = useStyles();
   const { state } = useApp();
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // §23: ↑/↓ move focus through the session rows while the sidebar has focus.
-  const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    const container = listRef.current;
-    if (container === null) return;
-    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));
-    const index = buttons.findIndex((b) => document.activeElement === b || b.contains(document.activeElement));
-    if (index < 0 && buttons.length === 0) return;
-    e.preventDefault();
-    const dir = e.key === "ArrowDown" ? 1 : -1;
-    const next = buttons[index + dir] ?? (dir === 1 ? buttons[0] : buttons[buttons.length - 1]);
-    next?.focus();
-  };
 
   return (
-    <nav className={styles.sidebar} aria-label="会话列表" onKeyDown={onKeyDown}>
-      <NewSessionButton />
-      <div ref={listRef} style={{ minHeight: "0", flex: "1 1 auto", overflowY: "auto" }}>
-        <SessionList sessions={state.sessions} />
+    <nav className={styles.sidebar} aria-label={copy["sidebar.open"]}>
+      <NewSessionButton onNavigate={onNavigate} />
+      {/* Overflow lives on the scroll container; ↑/↓ within each tree is
+          tabster's (SessionItem), not a keydown handler here. */}
+      <div className={styles.list}>
+        <SessionList sessions={state.sessions} onNavigate={onNavigate} />
       </div>
     </nav>
   );

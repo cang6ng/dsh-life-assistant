@@ -7,7 +7,7 @@
  */
 
 import { memo } from "react";
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { Caption1, makeStyles } from "@fluentui/react-components";
 import type { ConversationItem } from "../../protocol/types";
 import { copy } from "../../copy";
 import { MarkdownView } from "../../markdown/MarkdownView";
@@ -19,24 +19,17 @@ const useStyles = makeStyles({
     maxWidth: "100%",
     minWidth: "0",
   },
+  // Type comes from `Caption1`; these two classes only place the lines.
   provenance: {
-    fontSize: "12px",
-    color: tokens.colorNeutralForeground3,
     marginBottom: "2px",
   },
-  live: {
-    "&:empty": {
-      display: "none",
-    },
-  },
   caption: {
-    fontSize: "12px",
-    color: tokens.colorNeutralForeground3,
     marginTop: "4px",
   },
+  // §6.3's body stays a plain laid-out box: it holds the markdown renderer's
+  // own block elements (which own their typography in §6.4), and it is what
+  // carries `aria-live` while streaming.
   body: {
-    fontSize: tokens.fontSizeBase300, // 14px
-    lineHeight: "24px",
     minHeight: "1px",
   },
 });
@@ -64,14 +57,20 @@ export const AssistantBubble = memo(function AssistantBubble({
   return (
     <div className={styles.host}>
       {provenance && item.tools.length === 0 && (
-        <div className={styles.provenance}>{copy["provenance.assistant"]}</div>
+        <Caption1 block className={styles.provenance}>
+          {copy["provenance.assistant"]}
+        </Caption1>
       )}
       <Bubble kind="assistant" ts={item.ts}>
         <div className={styles.body} aria-live={streaming ? "polite" : undefined} aria-atomic={false}>
           <MarkdownView text={item.text} streaming={streaming} />
         </div>
       </Bubble>
-      {caption !== null && !streaming && <div className={styles.caption}>{caption}</div>}
+      {caption !== null && !streaming && (
+        <Caption1 block className={styles.caption}>
+          {caption}
+        </Caption1>
+      )}
     </div>
   );
 });

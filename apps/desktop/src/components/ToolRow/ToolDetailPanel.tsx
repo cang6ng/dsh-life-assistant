@@ -12,11 +12,12 @@ import { copy } from "../../copy";
 import { formatDuration } from "../../util/format";
 
 const useStyles = makeStyles({
+  // Vertical rhythm inside the §10.4 panel comes from the Card's own gap
+  // (`--fui-Card--size`), so the rows carry no margin of their own.
   fields: {
     display: "flex",
     flexDirection: "column",
     gap: "6px",
-    marginTop: "6px",
   },
   row: {
     display: "flex",

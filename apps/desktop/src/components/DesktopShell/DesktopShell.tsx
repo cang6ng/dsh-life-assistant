@@ -5,21 +5,29 @@
  * the conversation column's content only — the sidebar stays visible with
  * disabled rows. Width < 900 px collapses the sidebar into the rail overlay
  * (§22); global shortcuts Ctrl+N / Esc / Ctrl+Alt+A (§23.2).
+ *
+ * Both overlays in this file are Fluent `OverlayDrawer`s, one per §22/§12.4,
+ * and neither the rail panel nor the activity drawer is positioned by hand.
+ * They differ in exactly one prop: the rail panel is modal (scrim, focus trap,
+ * Esc) and the activity drawer is not (§12.4's "Backdrop: none, ever"). Both
+ * mount inside the main region so they sit between the bars rather than over
+ * the window controls — see the note on `contain: paint` below.
  */
 
 import { useEffect, useState } from "react";
-import { Button, makeStyles, tokens, Tooltip } from "@fluentui/react-components";
+import { Button, makeStyles, OverlayDrawer, tokens, Tooltip } from "@fluentui/react-components";
 import { AddRegular, PanelLeftRegular } from "@fluentui/react-icons";
 import type { RuntimeStatus } from "../../protocol/types";
 import { copy } from "../../copy";
 import { useApp } from "../../appContext";
+import { DRAWER_SURFACE_MOTION } from "../../motion";
 import { TitleBar } from "../TitleBar/TitleBar";
 import { StatusBar } from "../StatusBar/StatusBar";
 import { SessionSidebar } from "../SessionSidebar/SessionSidebar";
 import { ConversationView } from "../ConversationView/ConversationView";
 import { RuntimeStateCard, type RuntimeCardVariant } from "../RuntimeStateCard/RuntimeStateCard";
 import { ActivityDrawer } from "../ActivityDrawer/ActivityDrawer";
-import { ApiConfigPanel } from "../ApiConfig/ApiConfigPanel";
+import { SettingsPanel } from "../Settings/SettingsPanel";
 
 const NARROW_QUERY = "(max-width: 899px)"; // §22 content-width threshold
 
@@ -29,8 +37,6 @@ const useStyles = makeStyles({
     flexDirection: "column",
     width: "100%",
     height: "100%",
-    // Containing block for the ApiConfig modal, which covers the whole window
-    // (title bar and status bar included) rather than only the main region.
     position: "relative",
     backgroundColor: tokens.colorNeutralBackground1,
   },
@@ -40,6 +46,15 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "row",
     position: "relative",
+    // The activity drawer is a Fluent OverlayDrawer, whose surface is
+    // `position: fixed` against the viewport — top:0/bottom:0, i.e. over the
+    // title bar and the window controls. §12.4 wants it "below the title bar,
+    // above the status bar", which is exactly this element's box: paint
+    // containment makes it the containing block for fixed descendants, so the
+    // drawer's inset follows the 40 px and 28 px bars instead of duplicating
+    // their heights. (Verified: without this the surface spans 0→viewport, with
+    // it 40→height−28.)
+    contain: "paint",
   },
   conversation: {
     flex: "1 1 auto",
@@ -68,23 +83,27 @@ const useStyles = makeStyles({
     minWidth: "32px",
     height: "32px",
   },
-  overlayHost: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 30,
-    display: "flex",
-    flexDirection: "row",
-  },
-  scrim: {
-    flex: "1 1 auto",
-    cursor: "pointer",
-    backgroundColor: "color-mix(in srgb, var(--colorNeutralBackground1) 55%, transparent)",
-  },
-  overlayPanel: {
-    width: "264px",
-    flexShrink: 0,
+  // §22: the overlay panel is 264 px, the same width as the docked sidebar it
+  // replaces. Fluent's size presets are 320/592/940/full, so the width goes
+  // through the same custom property Fluent sizes itself from — which is also
+  // what the slide in DRAWER_SURFACE_MOTION travels by.
+  railDrawer: {
+    "--fui-Drawer--size": "264px",
     boxShadow: tokens.shadow16,
-    zIndex: 31,
+    // Above the activity drawer, which is a sibling in this region with no
+    // z-index of its own. (The backdrop needs none: it precedes the surface in
+    // the portal, so it already paints underneath.)
+    zIndex: 40,
+  },
+  // The drawer's root is a flex column with `alignItems: flex-start`, so a
+  // child does not stretch — the sidebar is only full-height if something
+  // between the two says so.
+  railBody: {
+    display: "flex",
+    flexDirection: "column",
+    alignSelf: "stretch",
+    flex: "1 1 auto",
+    minHeight: "0",
   },
 });
 
@@ -135,6 +154,11 @@ export function DesktopShell() {
   const status = state.runtime.status;
   const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW_QUERY).matches);
   const [railOpen, setRailOpen] = useState(false);
+  // The activity drawer is portaled into this element (see `contain: paint`
+  // above). Held in state rather than a ref because `mountNode` wants an
+  // element, and the portal can only be given one once it exists — which
+  // happens in the same commit's ref phase, before the first paint.
+  const [mainEl, setMainEl] = useState<HTMLDivElement | null>(null);
 
   // §22: window width drives the rail collapse (640–899 px content width).
   useEffect(() => {
@@ -181,7 +205,7 @@ export function DesktopShell() {
   return (
     <div className={styles.root}>
       <TitleBar />
-      <div className={styles.main}>
+      <div className={styles.main} ref={setMainEl}>
         {narrow ? <Rail onOpenPanel={() => setRailOpen(true)} /> : <SessionSidebar />}
         {showCard ? (
           <div className={styles.cardHost}>
@@ -192,30 +216,44 @@ export function DesktopShell() {
             <ConversationView />
           </div>
         )}
-        <ActivityDrawer />
-        {narrow && !showCard && railOpen && (
-          <div className={styles.overlayHost}>
-            <div
-              className={styles.scrim}
-              onClick={() => setRailOpen(false)}
-              aria-hidden="true"
-            />
-            <div
-              className={styles.overlayPanel}
-              onClickCapture={(e) => {
-                // §22: closing on selection — any button click in the panel.
-                if (e.target instanceof HTMLElement && e.target.closest("button") !== null) {
-                  setRailOpen(false);
-                }
-              }}
-            >
-              <SessionSidebar />
+        {/* Mounted only once the region exists. Mounting it earlier would hand
+            the portal a `null` mount node and then move it in the next commit,
+            and that remount discards the presence component's initial styles:
+            the closed surface would stay at its natural position — i.e. open
+            on screen — until the first open/close cycle moved it out. */}
+        {mainEl !== null && <ActivityDrawer mountNode={mainEl} />}
+        {narrow && !showCard && (
+          <OverlayDrawer
+            className={styles.railDrawer}
+            open={railOpen}
+            position="start"
+            // §22's panel opens "with scrim", so the backdrop is wanted here —
+            // the converse of §12.4. That is the default `modalType`, which
+            // also supplies the two things the hand-rolled overlay lacked:
+            // keyboard dismissal (Esc / backdrop click via `onOpenChange`)
+            // instead of a click-only `aria-hidden` div, and a focus trap
+            // while the panel is up.
+            mountNode={mainEl}
+            aria-label={copy["sidebar.open"]}
+            surfaceMotion={DRAWER_SURFACE_MOTION}
+            onOpenChange={(_, data) => {
+              if (!data.open) setRailOpen(false);
+            }}
+          >
+            <div className={styles.railBody}>
+              {/* §22's other dismissal: picking a session (or starting a new
+                  one) closes the panel. That used to be an `onClickCapture`
+                  that looked for `closest("button")` — which no longer matches
+                  a session row now that rows are tree items, and never matched
+                  a keyboard activation anyway. The sidebar reports the
+                  navigation instead of the shell guessing at it. */}
+              <SessionSidebar onNavigate={() => setRailOpen(false)} />
             </div>
-          </div>
+          </OverlayDrawer>
         )}
       </div>
       <StatusBar />
-      {state.ui.configOpen && <ApiConfigPanel />}
+      {state.ui.configOpen && <SettingsPanel />}
     </div>
   );
 }

@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import { Button, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Text, makeStyles, tokens } from "@fluentui/react-components";
 import { copy } from "../../copy";
 import { useApp } from "../../appContext";
 
@@ -37,8 +37,12 @@ const useStyles = makeStyles({
     borderRadius: "50%",
     backgroundColor: tokens.colorBrandBackground,
   },
+  // §7/§20.1 freeze the headline at 26/600/36 — no Fluent type ramp step is
+  // that size (`Text size={900}` is a different metric and `fontWeight` would
+  // have to be picked anyway), so the pixels stay here and `Text` supplies the
+  // element. Both lines take `block` so the sub-line's max-width can apply.
   headline: {
-    fontSize: "26px", // fontSizeHero800 visual (§20)
+    fontSize: "26px",
     fontWeight: 600,
     lineHeight: "36px",
     color: tokens.colorNeutralForeground1,
@@ -99,8 +103,12 @@ export function EmptyState() {
       <div className={styles.logo} aria-hidden="true">
         <span className={styles.dot} />
       </div>
-      <div className={styles.headline}>{copy["empty.headline"]}</div>
-      <div className={styles.sub}>{copy["empty.sub"]}</div>
+      <Text block className={styles.headline}>
+        {copy["empty.headline"]}
+      </Text>
+      <Text block className={styles.sub}>
+        {copy["empty.sub"]}
+      </Text>
       <div className={styles.chips}>
         {CHIPS.map((chip) => (
           <Button

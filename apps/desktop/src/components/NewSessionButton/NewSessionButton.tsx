@@ -19,7 +19,7 @@ const useStyles = makeStyles({
   },
 });
 
-export function NewSessionButton() {
+export function NewSessionButton({ onNavigate }: { onNavigate?: () => void }) {
   const styles = useStyles();
   const { state, actions } = useApp();
   const locked = state.activeTurn !== null;
@@ -31,7 +31,10 @@ export function NewSessionButton() {
         icon={<AddRegular aria-hidden="true" />}
         aria-label={copy["newSession"]}
         disabled={locked}
-        onClick={() => void actions.newSession()}
+        onClick={() => {
+          void actions.newSession();
+          onNavigate?.(); // §22: the rail panel closes on selection
+        }}
       >
         {copy["newSession"]}
       </Button>

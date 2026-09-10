@@ -2,17 +2,51 @@
  * Allowlisted markdown renderer (UI Spec §6.4) — block styles come from
  * Fluent tokens only. Raw HTML never reaches the tree: every construct is
  * parsed to the AST in markdown.ts and rendered here node-by-node.
+ *
+ * v1.0.4: the prose is Fluent typography. The `Text` presets carry `as`, so
+ * the element the markdown means is still the element that renders — a
+ * paragraph stays a `<p>`, and a heading stays a heading at the level §6.4
+ * renders (`#` → `<h3>`, `##` → `<h4>`, `###` → `<h5>`) — while the face comes
+ * from the design system instead of from hand-set pixels.
+ *
+ * §20.1/§6.4 are frozen and the ramp does not match them everywhere, so the
+ * pixels §20.1 names are pinned in `makeStyles` and handed over through
+ * `className`: the conversation body is 14/400/**24** (Fluent's own Body1 line
+ * box is 20), the third heading level is **13** px (the ramp has no 13), and
+ * code is 12.5/**18** (no preset is 12.5). Everything the frozen clauses do
+ * not name is left to the component.
+ *
+ * What stays hand-rolled, and why:
+ *
+ * - the table — Fluent's `Table` is an interactive DataGrid: it pins
+ *   `table-layout: fixed`, gives every row a `colorNeutralStroke2` bottom
+ *   border and every body cell a 44 px floor, and wraps each header cell's
+ *   content in an extra `fui-TableHeaderCell__button` div (flex, 32 px floor).
+ *   §6.4's table is a static grid with none of that behaviour to gain, so the
+ *   component would be a dozen overrides back to the same markup;
+ * - the list, the `<blockquote>` rule, the `<pre>` block and the inline-code
+ *   chip — v9 has no list, quote or code component at all;
+ * - bold and italic — these are properties of a run, not a text preset.
+ *   `Body1Strong` would also pin an italic or bold run to 14 px, which is
+ *   wrong the moment that run sits inside a heading.
  */
 
-import { makeStyles, tokens } from "@fluentui/react-components";
+import {
+  Body1,
+  Body1Strong,
+  Subtitle2,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
 import type { ReactElement } from "react";
 import { memo } from "react";
+import { CARET_BLINK } from "../motion";
 import { parseMarkdown, type BlockNode, type InlineNode } from "./markdown";
 
 const useStyles = makeStyles({
   root: {
-    fontSize: tokens.fontSizeBase300, // 14px body
-    lineHeight: tokens.lineHeightBase400, // 24px
+    fontSize: tokens.fontSizeBase300, // 14px
+    lineHeight: "24px", // §20.1 conversation body 14/400/24
     color: tokens.colorNeutralForeground1,
     wordBreak: "break-word",
     // 8px between blocks (§6.4 paragraphs); not around the container.
@@ -20,35 +54,42 @@ const useStyles = makeStyles({
       marginTop: "8px",
     },
   },
+  // §6.4 headings are 16/600, 14/600, 13/600 with margins 12/8/4. The first
+  // two are Fluent's Subtitle2 and Body1Strong exactly, so these classes carry
+  // only what the frozen clause adds on top — the margin, and for the third
+  // level a size the ramp does not have. Line boxes stay the presets' own;
+  // §6.4 freezes size, weight, colour and margin, not leading.
   heading1: {
-    fontSize: tokens.fontSizeBase500, // 16px
-    fontWeight: tokens.fontWeightSemibold,
     color: tokens.colorNeutralForeground1,
     marginTop: "12px",
   },
   heading2: {
-    fontSize: tokens.fontSizeBase400, // 14px
-    fontWeight: tokens.fontWeightSemibold,
     color: tokens.colorNeutralForeground1,
     marginTop: "8px",
   },
   heading3: {
     fontSize: "13px",
-    fontWeight: tokens.fontWeightSemibold,
     color: tokens.colorNeutralForeground1,
     marginTop: "4px",
   },
+  // Body1 would otherwise impose its own 20 px line box on the paragraph; the
+  // frozen body line is 24 (§20.1).
+  para: {
+    lineHeight: "24px",
+  },
+  // §6.4: 600 weight / italic. Not presets — see the file header.
   strong: {
     fontWeight: tokens.fontWeightSemibold,
   },
   em: {
     fontStyle: "italic",
   },
+  // §6.4: code face 13px, NeutralBackground3, radius 3px, padding 0 4px.
   codeInline: {
     fontFamily: tokens.fontFamilyMonospace,
     fontSize: "13px",
     backgroundColor: tokens.colorNeutralBackground3,
-    borderRadius: tokens.borderRadiusSmall,
+    borderRadius: "3px",
     padding: "0 4px",
   },
   list: {
@@ -62,13 +103,15 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
   },
+  // §6.4: NeutralBackground3 panel, radius 6px, padding 8–10px, Consolas
+  // 12.5px, horizontal scroll. §20.1's code line is 12.5/400/18.
   pre: {
     margin: 0,
     fontFamily: tokens.fontFamilyMonospace,
     fontSize: "12.5px",
-    lineHeight: tokens.lineHeightBase300,
+    lineHeight: "18px",
     backgroundColor: tokens.colorNeutralBackground3,
-    borderRadius: tokens.borderRadiusMedium,
+    borderRadius: tokens.borderRadiusLarge, // 6px
     padding: "8px 10px",
     overflowX: "auto",
     whiteSpace: "pre",
@@ -103,23 +146,17 @@ const useStyles = makeStyles({
     height: "1em",
     verticalAlign: "text-bottom",
     backgroundColor: tokens.colorBrandBackground,
-    animationName: "chinookCaretBlink",
-    animationDuration: "1.1s",
+    animationName: CARET_BLINK, // §21, keyframes in motion.ts
+    animationDuration: "400ms",
     animationIterationCount: "infinite",
+    // §21: "disabled under prefers-reduced-motion (steady caret)". Dropping
+    // the animation leaves the span at its own opacity — i.e. simply lit,
+    // which is what §21 asks a reduced-motion client to show instead.
+    "@media (prefers-reduced-motion: reduce)": {
+      animationName: "none",
+    },
   },
 });
-
-// The caret blink keyframes cannot be declared inside makeStyles (griffel);
-// inject them once, globally, and reference by name in the style rule.
-const CARET_KEYFRAMES = "@keyframes chinookCaretBlink { 0%,60% { opacity: 1 } 61%,100% { opacity: 0 } }";
-let keyframesInjected = false;
-function ensureCaretKeyframes(): void {
-  if (keyframesInjected) return;
-  keyframesInjected = true;
-  const style = document.createElement("style");
-  style.textContent = CARET_KEYFRAMES;
-  document.head.appendChild(style);
-}
 
 interface MarkdownViewProps {
   text: string;
@@ -128,7 +165,6 @@ interface MarkdownViewProps {
 }
 
 export const MarkdownView = memo(function MarkdownView({ text, streaming }: MarkdownViewProps) {
-  if (streaming) ensureCaretKeyframes();
   const blocks = parseMarkdown(text);
   const styles = useStyles();
   return (
@@ -144,6 +180,7 @@ interface Styles {
   heading1: string;
   heading2: string;
   heading3: string;
+  para: string;
   strong: string;
   em: string;
   codeInline: string;
@@ -172,20 +209,33 @@ function Block({
   switch (node.t) {
     case "p":
       return (
-        <p>
+        <Body1 as="p" className={styles.para}>
           <Inline nodes={node.children} styles={styles} />
           {streaming && last && <span className={styles.caret} aria-hidden="true" />}
-        </p>
+        </Body1>
       );
-    case "h": {
-      const cls = node.level === 1 ? styles.heading1 : node.level === 2 ? styles.heading2 : styles.heading3;
-      const Tag = (node.level === 1 ? "h3" : node.level === 2 ? "h4" : "h5") as "h3" | "h4" | "h5";
+    case "h":
+      // §6.4's three levels. The rendered element is a real heading at its
+      // outline depth; only the preset behind it changes.
+      if (node.level === 1) {
+        return (
+          <Subtitle2 as="h3" className={styles.heading1}>
+            <Inline nodes={node.children} styles={styles} />
+          </Subtitle2>
+        );
+      }
+      if (node.level === 2) {
+        return (
+          <Body1Strong as="h4" className={styles.heading2}>
+            <Inline nodes={node.children} styles={styles} />
+          </Body1Strong>
+        );
+      }
       return (
-        <Tag className={cls}>
+        <Body1Strong as="h5" className={styles.heading3}>
           <Inline nodes={node.children} styles={styles} />
-        </Tag>
+        </Body1Strong>
       );
-    }
     case "list": {
       const ListTag = node.ordered ? "ol" : "ul";
       return (

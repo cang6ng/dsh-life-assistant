@@ -5,7 +5,7 @@
  * endpoint and the credential deliberately never reach the store (§44).
  */
 
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { Caption1, Text, makeStyles, tokens } from "@fluentui/react-components";
 import { copy, statusModelCopy } from "../../copy";
 import { useApp } from "../../appContext";
 import { StatusDot, type StatusDotTone } from "../primitives/StatusDot";
@@ -14,6 +14,12 @@ import { StatusDot, type StatusDotTone } from "../primitives/StatusDot";
 const FALLBACK_MODEL = "deepseek-v4-flash";
 
 const useStyles = makeStyles({
+  // §16.6/§29 keep this row custom, and the 1 px rule above it is the row's
+  // own `borderTop` rather than a Fluent `Divider`: Divider renders a 4.4 px
+  // flex box holding a 0.8 px hairline plus a `role="separator"`, which would
+  // both push the 28 px bar's content down and put a separator in the status
+  // role. A border on a layout row is layout, which is what §27.2 leaves to
+  // `makeStyles`.
   bar: {
     height: "28px",
     display: "flex",
@@ -31,7 +37,6 @@ const useStyles = makeStyles({
   },
   right: {
     marginLeft: "auto",
-    fontSize: "12px",
     color: tokens.colorNeutralForeground3,
     whiteSpace: "nowrap",
     overflow: "hidden",
@@ -73,8 +78,8 @@ export function StatusBar() {
   return (
     <footer className={styles.bar}>
       <StatusDot tone={toneFor(state.runtime.status)} />
-      <span className={styles.status}>{left}</span>
-      {right !== "" && <span className={styles.right}>{right}</span>}
+      <Text className={styles.status}>{left}</Text>
+      {right !== "" && <Caption1 className={styles.right}>{right}</Caption1>}
     </footer>
   );
 }

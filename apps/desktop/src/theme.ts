@@ -8,7 +8,7 @@
 import { createDarkTheme, createLightTheme, type BrandVariants, type Theme } from "@fluentui/react-components";
 
 /** Chinook Warm ramp, 10…160. The binding stops: 80=#C2410C, 60≈#A3360A, 130=#FF9E73. */
-const chinookBrand: BrandVariants = {
+export const chinookBrand: BrandVariants = {
   10: "#2D0A00",
   20: "#461400",
   30: "#5E1D00",
@@ -30,6 +30,17 @@ const chinookBrand: BrandVariants = {
 export interface ThemeTokens extends Theme {
   chinookUserBubbleBg: string;
 }
+
+/**
+ * The accent the shell publishes as `--chinook-accent` (§19.1's two allowed
+ * stops for it): the base tone on light, the active tone on dark. It lives
+ * here rather than in app.tsx so the ramp has exactly one home — the theme
+ * host used to spell these two hexes out again.
+ */
+export const CHINOOK_ACCENT: Record<"light" | "dark", string> = {
+  light: chinookBrand[80], // #C2410C
+  dark: chinookBrand[130], // #FF9E73
+};
 
 function withCustom(base: Theme, userBubble: string): ThemeTokens {
   const tokens = base as ThemeTokens;

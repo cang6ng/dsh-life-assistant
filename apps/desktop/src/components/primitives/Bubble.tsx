@@ -5,7 +5,7 @@
  */
 
 import type { ReactNode } from "react";
-import { makeStyles, tokens } from "@fluentui/react-components";
+import { Caption1, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
 import { formatClock } from "../../util/format";
 
 // `chinookUserBubbleBg` is a runtime theme token (§6.2) surfaced as the CSS
@@ -42,8 +42,9 @@ const useStyles = makeStyles({
     maxWidth: "100%",
     color: tokens.colorNeutralForeground1,
   },
+  // §6.5's hover caption. The type comes from `Caption1`; this class only
+  // hides it, reveals it on row hover/focus, and pins it to the outer edge.
   time: {
-    fontSize: "12px",
     color: tokens.colorNeutralForeground3,
     opacity: 0,
     transition: "opacity 150ms ease",
@@ -85,9 +86,12 @@ export function Bubble({ kind, ts, children, assistantClassName }: BubbleProps) 
   return (
     <div className={rowCls}>
       {kind === "assistant" && (
-        <span className={`${styles.time} ${styles.timeLeft} chinook-bubble-time`} aria-hidden="true">
+        <Caption1
+          className={mergeClasses(styles.time, styles.timeLeft, "chinook-bubble-time")}
+          aria-hidden="true"
+        >
           {formatClock(ts)}
-        </span>
+        </Caption1>
       )}
       {kind === "user" ? (
         <div className={styles.user}>{children}</div>
@@ -95,9 +99,9 @@ export function Bubble({ kind, ts, children, assistantClassName }: BubbleProps) 
         <div className={`${styles.assistant} ${assistantClassName ?? ""}`}>{children}</div>
       )}
       {kind === "user" && (
-        <span className={`${styles.time} chinook-bubble-time`} aria-hidden="true">
+        <Caption1 className={mergeClasses(styles.time, "chinook-bubble-time")} aria-hidden="true">
           {formatClock(ts)}
-        </span>
+        </Caption1>
       )}
     </div>
   );

@@ -7,7 +7,8 @@
 
 import { createContext, useContext } from "react";
 import type { DrawerFilter } from "./store/actions";
-import type { RootState } from "./store/state";
+import type { RootState, SettingsTab } from "./store/state";
+import type { Scheme, ThemePreference } from "./store/themePreference";
 import type {
   ApiConfigData,
   ApiConfigModelsDraft,
@@ -62,6 +63,14 @@ export interface AppActions {
   setDrawerFilter: (filter: DrawerFilter) => void;
   closeDrawer: () => void;
   toggleStrip: (turnId: number) => void;
+  /** Which settings tab is showing (purely presentational). */
+  setSettingsTab: (tab: SettingsTab) => void;
+
+  // ---- appearance (§18 as amended by v1.0.4) ------------------------------
+  /** Persists the choice and switches the theme in the same dispatch. */
+  setThemePreference: (preference: ThemePreference) => void;
+  /** The title bar's one-click toggle: light ⇄ dark, never `system`. */
+  toggleTheme: () => void;
 
   // ---- model-endpoint configuration (§4.3, v1.0.2) ------------------------
   openConfig: () => void;
@@ -88,6 +97,12 @@ export interface AppValue {
   state: RootState;
   /** §5.4/§13: a session.open is in flight (loader in the column). */
   opening: boolean;
+  /**
+   * The scheme actually being rendered, after the preference and (only for
+   * 追随系统) the OS have been resolved. Published here so the title bar's
+   * toggle can pick its icon without subscribing to `matchMedia` itself.
+   */
+  scheme: Scheme;
   actions: AppActions;
 }
 

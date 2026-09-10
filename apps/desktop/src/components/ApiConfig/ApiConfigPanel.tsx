@@ -1,9 +1,9 @@
 /**
- * ModelSettings overlay (§4.3/§16, v1.0.2): Base URL · API Key · 模型名称.
+ * The 模型 tab (§4.3/§16, v1.0.2): Base URL · API Key · 模型名称.
  *
- * Mounted only while `ui.configOpen` (DesktopShell), never always-mounted
- * behind a slide: the key input then does not exist in the DOM at all while
- * the panel is closed.
+ * Mounted only while the settings surface is open and this tab is selected
+ * (SettingsPanel), never always-mounted behind a slide: the key input then
+ * does not exist in the DOM at all while the tab is away.
  *
  * The credential rule this component exists to honour (§44) is visible in the
  * flow: the key travels UP only. It starts empty every time the panel opens
@@ -16,11 +16,25 @@
  * The model list is the panel's own state, never the store's: it is a view of
  * one endpoint's answer, so it dies with the panel and is keyed to the URL
  * that produced it.
+ *
+ * This file owns no dialog of its own — the surface belongs to
+ * SettingsPanel. `tests/architecture-desktop.test.ts` reads this path by name
+ * for the §44 DOM-read ban, which is why the file stayed put when the
+ * settings surface was introduced.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Spinner, Text, makeStyles, tokens } from "@fluentui/react-components";
-import { DismissRegular } from "@fluentui/react-icons";
+import {
+  Button,
+  Combobox,
+  Field,
+  Input,
+  Option,
+  Spinner,
+  Text,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
 import type { ApiConfigData } from "../../protocol/types";
 import {
   apiKeyConfiguredCopy,
@@ -44,96 +58,36 @@ import {
 } from "./form";
 
 const useStyles = makeStyles({
-  host: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 40,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scrim: {
-    position: "absolute",
-    inset: 0,
-    backgroundColor: "color-mix(in srgb, var(--colorNeutralBackground1) 55%, transparent)",
-  },
   panel: {
-    position: "relative",
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-    width: "560px",
-    maxWidth: "calc(100% - 48px)",
-    maxHeight: "calc(100% - 48px)",
-    overflowY: "auto",
-    padding: "20px 24px 18px",
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusXLarge,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    boxShadow: tokens.shadow16,
-  },
-  header: {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: "8px",
-  },
-  heading: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-    flex: "1 1 auto",
-    minWidth: 0,
-  },
-  title: {
-    fontSize: "17px",
-    fontWeight: 600,
-    color: tokens.colorNeutralForeground1,
   },
   sub: {
     fontSize: "12.5px",
     lineHeight: "18px",
     color: tokens.colorNeutralForeground2,
   },
-  field: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  labelRow: {
+  /** Label · trailing state · trailing action, on the line above a control. */
+  fieldHead: {
     display: "flex",
     flexDirection: "row",
     alignItems: "baseline",
     gap: "8px",
   },
-  label: {
-    fontSize: "13px",
-    fontWeight: 600,
-    color: tokens.colorNeutralForeground1,
-  },
   state: {
     fontSize: "12px",
     color: tokens.colorNeutralForeground3,
   },
-  input: {
-    height: "30px",
-    padding: "0 10px",
-    fontSize: "13px",
-    fontFamily: tokens.fontFamilyBase,
-    color: tokens.colorNeutralForeground1,
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderRadius: tokens.borderRadiusMedium,
-    outline: "none",
-    selectors: {
-      ":focus": { border: `1px solid ${tokens.colorBrandStroke1}` },
-      ":disabled": {
-        backgroundColor: tokens.colorNeutralBackground3,
-        color: tokens.colorNeutralForeground4,
-      },
-    },
+  /** A `Field` hint/none-of-the-above line that carries more than text. */
+  hintRow: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
   },
-  hint: {
+  hintText: {
     fontSize: "12px",
     lineHeight: "17px",
     color: tokens.colorNeutralForeground3,
@@ -166,32 +120,6 @@ const useStyles = makeStyles({
     flexDirection: "column",
     gap: "3px",
     minHeight: "17px",
-  },
-  list: {
-    display: "flex",
-    flexDirection: "column",
-    maxHeight: "180px",
-    overflowY: "auto",
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  row: {
-    padding: "6px 10px",
-    textAlign: "left",
-    fontSize: "12.5px",
-    fontFamily: tokens.fontFamilyMonospace,
-    color: tokens.colorNeutralForeground1,
-    backgroundColor: "transparent",
-    border: "none",
-    cursor: "pointer",
-    selectors: {
-      ":hover": { backgroundColor: tokens.colorNeutralBackground2 },
-    },
-  },
-  rowPicked: {
-    color: tokens.colorBrandForeground1,
-    backgroundColor: tokens.colorNeutralBackground2,
   },
 });
 
@@ -235,6 +163,10 @@ export function ApiConfigPanel() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [clearApiKey, setClearApiKey] = useState(false);
   const [modelList, setModelList] = useState<ModelList | null>(null);
+  // The fetched ids live in a Combobox popup now, so a successful listing has
+  // to open it: otherwise 获取模型 would look like it did nothing until the
+  // user thought to click the field.
+  const [listOpen, setListOpen] = useState(false);
 
   /** Adopt a configuration the host just returned as the new baseline. */
   const adopt = useCallback((next: ApiConfigData) => {
@@ -360,38 +292,18 @@ export function ApiConfigPanel() {
           ? copy["config.model.fetchEmpty"] // a listing that is legitimately empty
           : modelsFetchedCopy(models.length),
     });
+    setListOpen(listed && models.length > 0);
   }, [actions, form.apiKey, form.baseUrl]);
 
 
   return (
-    <div className={styles.host}>
-      <div className={styles.scrim} aria-hidden="true" />
-      <div
-        className={styles.panel}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="api-config-title"
-      >
-        <div className={styles.header}>
-          <div className={styles.heading}>
-            <Text id="api-config-title" className={styles.title}>
-              {copy["config.title"]}
-            </Text>
-            <Text className={styles.sub}>{copy["config.sub"]}</Text>
-          </div>
-          <Button
-            appearance="subtle"
-            size="small"
-            aria-label={copy["config.close"]}
-            icon={<DismissRegular aria-hidden="true" />}
-            onClick={actions.closeConfig}
-          />
-        </div>
+    <div className={styles.panel}>
+        <Text className={styles.sub}>{copy["config.sub"]}</Text>
 
         {loadState === "loading" && (
-          <div className={styles.labelRow}>
+          <div className={styles.hintRow}>
             <Spinner size="tiny" aria-hidden="true" />
-            <Text className={styles.hint}>{copy["config.loading"]}</Text>
+            <Text className={styles.hintText}>{copy["config.loading"]}</Text>
           </div>
         )}
 
@@ -411,126 +323,125 @@ export function ApiConfigPanel() {
 
         {loadState === "ready" && config !== null && (
           <>
-            <div className={styles.field}>
-              <div className={styles.labelRow}>
-                <Text className={styles.label}>{copy["config.baseUrl.label"]}</Text>
-                {config.baseUrlOverridden && (
-                  <Text className={styles.state}>{copy["config.baseUrl.overridden"]}</Text>
-                )}
-              </div>
-              <input
-                className={styles.input}
+            <Field
+              label={copy["config.baseUrl.label"]}
+              hint={strippedSuffix ? copy["config.baseUrl.stripped"] : copy["config.baseUrl.hint"]}
+              validationMessage={
+                errors.baseUrl !== undefined ? copy[errors.baseUrl] : undefined
+              }
+              validationState={errors.baseUrl !== undefined ? "error" : "none"}
+            >
+              <Input
                 type="text"
                 spellCheck={false}
                 autoComplete="off"
-                aria-label={copy["config.baseUrl.label"]}
                 placeholder="https://api.deepseek.com"
                 value={form.baseUrl}
-                onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                onChange={(_, data) => setForm((f) => ({ ...f, baseUrl: data.value }))}
               />
-              {strippedSuffix ? (
-                <Text className={styles.note}>{copy["config.baseUrl.stripped"]}</Text>
-              ) : (
-                <Text className={styles.hint}>{copy["config.baseUrl.hint"]}</Text>
-              )}
-              {errors.baseUrl !== undefined && (
-                <Text className={styles.error}>{copy[errors.baseUrl]}</Text>
-              )}
-            </div>
+            </Field>
+            {/* Saved-state note, not form state: it describes the endpoint the
+                host currently has, so it is a sibling of the field. */}
+            {config.baseUrlOverridden && (
+              <Text className={styles.state}>{copy["config.baseUrl.overridden"]}</Text>
+            )}
 
-            <div className={styles.field}>
-              <div className={styles.labelRow}>
-                <Text className={styles.label}>{copy["config.apiKey.label"]}</Text>
-                <Text className={styles.state}>
-                  {apiKey !== null && apiKey.configured && apiKey.source !== undefined
-                    ? apiKeyConfiguredCopy(apiKey.source)
-                    : copy["config.apiKey.missing"]}
-                </Text>
-                {canWriteKey && config.apiKey.configured && !clearApiKey && (
-                  <Button
-                    appearance="subtle"
-                    size="small"
-                    disabled={locked || busy !== null}
-                    onClick={() => setClearApiKey(true)}
-                  >
-                    {copy["config.apiKey.clear"]}
-                  </Button>
-                )}
-              </div>
-              <input
-                className={styles.input}
+            <Field
+              label={
+                <>
+                  {copy["config.apiKey.label"]}
+                  {"  "}
+                  <Text className={styles.state}>
+                    {apiKey !== null && apiKey.configured && apiKey.source !== undefined
+                      ? apiKeyConfiguredCopy(apiKey.source)
+                      : copy["config.apiKey.missing"]}
+                  </Text>
+                </>
+              }
+              // The clear button cannot live inside `Field`'s label (a label
+              // must not contain an interactive child — the click would be
+              // forwarded to the input as well), so it rides the hint line.
+              hint={
+                <span className={styles.hintRow}>
+                  {apiKey !== null && !apiKey.writable ? (
+                    <Text className={styles.warn}>{apiKeyReadOnlyCopy(apiKey.ref)}</Text>
+                  ) : clearApiKey ? (
+                    <Text className={styles.warn}>{copy["config.apiKey.willClear"]}</Text>
+                  ) : (
+                    <Text className={styles.hintText}>{copy["config.apiKey.hint"]}</Text>
+                  )}
+                  {canWriteKey && config.apiKey.configured && !clearApiKey && (
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      disabled={locked || busy !== null}
+                      onClick={() => setClearApiKey(true)}
+                    >
+                      {copy["config.apiKey.clear"]}
+                    </Button>
+                  )}
+                </span>
+              }
+            >
+              <Input
                 type="password"
                 spellCheck={false}
                 autoComplete="new-password"
-                aria-label={copy["config.apiKey.label"]}
                 placeholder="sk-…"
                 value={form.apiKey}
                 disabled={!canWriteKey}
-                onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+                onChange={(_, data) => setForm((f) => ({ ...f, apiKey: data.value }))}
               />
-              {apiKey !== null && !apiKey.writable ? (
-                <Text className={styles.warn}>{apiKeyReadOnlyCopy(apiKey.ref)}</Text>
-              ) : clearApiKey ? (
-                <Text className={styles.warn}>{copy["config.apiKey.willClear"]}</Text>
-              ) : (
-                <Text className={styles.hint}>{copy["config.apiKey.hint"]}</Text>
-              )}
-            </div>
+            </Field>
 
-            <div className={styles.field}>
-              <div className={styles.labelRow}>
-                <Text className={styles.label}>{copy["config.model.label"]}</Text>
-                <Button
-                  appearance="subtle"
-                  size="small"
-                  disabled={!canFetchModels}
-                  title={fetchModelsTitle}
-                  onClick={() => void onFetchModels()}
-                >
-                  {busy === "models" ? copy["config.model.fetching"] : copy["config.model.fetch"]}
-                </Button>
-              </div>
-              <input
-                className={styles.input}
-                type="text"
-                spellCheck={false}
-                autoComplete="off"
-                aria-label={copy["config.model.label"]}
-                placeholder="deepseek-v4-flash"
+            <Field
+              label={copy["config.model.label"]}
+              validationMessage={errors.model !== undefined ? copy[errors.model] : undefined}
+              validationState={errors.model !== undefined ? "error" : "none"}
+            >
+              <Combobox
+                freeform
+                // Open when a listing lands, closed otherwise: the popup is
+                // the fetched list, and 获取模型 has to show its work.
+                open={listOpen}
+                onOpenChange={(_, data) => setListOpen(data.open)}
                 value={form.model}
+                placeholder="deepseek-v4-flash"
+                // Combobox types `onChange` as the underlying <input>'s own
+                // React handler (the `data`-shaped one belongs to Input), so
+                // typing reads the DOM event and picking reads onOptionSelect.
                 onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-              />
-              {errors.model !== undefined ? (
-                <Text className={styles.error}>{copy[errors.model]}</Text>
+                onOptionSelect={(_, data) => {
+                  if (data.optionValue !== undefined) {
+                    setForm((f) => ({ ...f, model: data.optionValue as string }));
+                  }
+                }}
+              >
+                {/* Shown only while the form still points at the endpoint that
+                    answered — see onFetchModels. Clicking is a fill, not a save. */}
+                {modelList !== null &&
+                  modelList.baseUrl === normalizedBaseUrl &&
+                  modelList.ids.map((id) => (
+                    <Option key={id} value={id}>
+                      {id}
+                    </Option>
+                  ))}
+              </Combobox>
+            </Field>
+            <div className={styles.hintRow}>
+              <Button
+                appearance="subtle"
+                size="small"
+                disabled={!canFetchModels}
+                title={fetchModelsTitle}
+                onClick={() => void onFetchModels()}
+              >
+                {busy === "models" ? copy["config.model.fetching"] : copy["config.model.fetch"]}
+              </Button>
+              {modelList !== null && modelList.baseUrl === normalizedBaseUrl ? (
+                <Text className={modelList.ok ? styles.note : styles.error}>{modelList.message}</Text>
               ) : (
-                <Text className={styles.hint}>{copy["config.model.hint"]}</Text>
-              )}
-              {/* Shown only while the form still points at the endpoint that
-                  answered — see onFetchModels. Clicking is a fill, not a save. */}
-              {modelList !== null && modelList.baseUrl === normalizedBaseUrl && (
-                <>
-                  <Text className={modelList.ok ? styles.note : styles.error}>{modelList.message}</Text>
-                  {modelList.ids.length > 0 && (
-                    <div
-                      className={styles.list}
-                      role="listbox"
-                      aria-label={copy["config.model.listLabel"]}
-                    >
-                      {modelList.ids.map((id) => (
-                        <button
-                          key={id}
-                          type="button"
-                          role="option"
-                          aria-selected={id === form.model}
-                          className={id === form.model ? `${styles.row} ${styles.rowPicked}` : styles.row}
-                          onClick={() => setForm((f) => ({ ...f, model: id }))}
-                        >
-                          {id}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
+                <Text className={styles.hintText}>{copy["config.model.hint"]}</Text>
               )}
             </div>
 
@@ -543,7 +454,7 @@ export function ApiConfigPanel() {
                   {warning}
                 </Text>
               ))}
-              {locked && <Text className={styles.hint}>{copy["config.locked"]}</Text>}
+              {locked && <Text className={styles.hintText}>{copy["config.locked"]}</Text>}
             </div>
 
             <div className={styles.actions}>
@@ -561,7 +472,6 @@ export function ApiConfigPanel() {
             </div>
           </>
         )}
-      </div>
     </div>
   );
 }

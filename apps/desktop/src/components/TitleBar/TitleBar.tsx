@@ -1,17 +1,31 @@
 /**
  * TitleBar (§4.3/§27.1): brand (drag region) · RuntimeStatusBadge ·
- * ActivityEntryButton · WindowControls. 40 px; custom chrome since the host
- * window is undecorated (decorations: false).
+ * ThemeToggleButton · SettingsEntryButton · ActivityEntryButton ·
+ * WindowControls. 40 px; custom chrome since the host window is undecorated
+ * (decorations: false).
+ *
+ * The bar stays a flex row rather than a Fluent Toolbar: Toolbar brings its
+ * own height and an overflow menu, and a 40 px undecorated bar cannot afford
+ * either — an overflow menu would swallow the window controls.
  */
 
 import { useEffect, useState } from "react";
-import { Button, Spinner, makeStyles, tokens } from "@fluentui/react-components";
+import {
+  Button,
+  Spinner,
+  ToggleButton,
+  Tooltip,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
 import {
   DismissRegular,
   SettingsRegular,
   SquareMultipleRegular,
   SquareRegular,
   SubtractRegular,
+  WeatherMoonRegular,
+  WeatherSunnyRegular,
 } from "@fluentui/react-icons";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -107,9 +121,12 @@ function ActivityEntryButton() {
 }
 
 /**
- * 模型设置 — present in EVERY runtime state, deliberately: a first-run user
- * with no credential configured lands on the error card, and this has to be
+ * 设置 — present in EVERY runtime state, deliberately: a first-run user with
+ * no credential configured lands on the error card, and this has to be
  * reachable from there or there is no way forward inside the product.
+ *
+ * Keeps the position the 模型设置 button held; the model endpoint is now the
+ * panel's 模型 tab.
  */
 function SettingsEntryButton() {
   const styles = useStyles();
@@ -126,6 +143,33 @@ function SettingsEntryButton() {
         {copy["config.button"]}
       </span>
     </Button>
+  );
+}
+
+/**
+ * The one-click appearance toggle (§18 as amended by v1.0.4). It is a plain
+ * Fluent ToggleButton driving the app's own FluentProvider swap — the library
+ * ships no theme switcher, and this needs no styling of its own beyond the
+ * icon it advertises.
+ *
+ * The icon shows what a click *gives you* (a moon while light, a sun while
+ * dark), which is the convention Windows uses for the same control.
+ */
+function ThemeToggleButton() {
+  const { scheme, actions } = useApp();
+  const dark = scheme === "dark";
+  const label = dark ? copy["theme.toggle.toLight"] : copy["theme.toggle.toDark"];
+  return (
+    <Tooltip content={label} relationship="label">
+      <ToggleButton
+        appearance="subtle"
+        size="small"
+        checked={dark}
+        aria-label={label}
+        icon={dark ? <WeatherSunnyRegular /> : <WeatherMoonRegular />}
+        onClick={actions.toggleTheme}
+      />
+    </Tooltip>
   );
 }
 
@@ -185,9 +229,16 @@ export function TitleBar() {
   const styles = useStyles();
   const { state } = useApp();
   return (
-    <div className={styles.bar}>
-      {/* The brand area is the window drag region (Tauri v2 data attribute). */}
-      <div className={styles.brand} data-tauri-drag-region>
+    // The bar itself carries a bare drag region, so the padding and the gaps
+    // between the entry buttons move the window too — a bare attribute only
+    // fires when the click lands on that element itself, and every child is
+    // either clickable (blocks the drag) or has its own region.
+    <div className={styles.bar} data-tauri-drag-region>
+      {/* The brand block is the primary drag handle. "deep" rather than bare:
+          a bare attribute only fires when the click's target *is* the element,
+          which the title text, the dot and the domain span are not — clicking
+          the word "DSH Life Assistant" would otherwise not move the window. */}
+      <div className={styles.brand} data-tauri-drag-region="deep">
         <span className={styles.dot} aria-hidden="true" />
         <span className={styles.title}>{copy["app.title"]}</span>
         <span className={styles.domainSeparator} aria-hidden="true">
@@ -197,6 +248,7 @@ export function TitleBar() {
       </div>
       <RuntimeStatusBadge status={state.runtime.status} />
       <div className={styles.spacer} data-tauri-drag-region />
+      <ThemeToggleButton />
       <SettingsEntryButton />
       <ActivityEntryButton />
       <WindowControls />

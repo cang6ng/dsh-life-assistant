@@ -15,6 +15,7 @@ export const copy = {
   "composer.hint": "Enter 发送，Shift + Enter 换行",
   "composer.sending": "Agent 正在回答…",
   "composer.sendFailed": "发送失败，请重试",
+  "composer.newSession": "输入后按 Enter 会自动创建新会话",
   "composer.counter": "{n}/4000",
   "sidebar.group.today": "今天",
   "sidebar.group.yesterday": "昨天",
@@ -27,6 +28,10 @@ export const copy = {
   "activity.empty": "暂无活动事件",
   "activity.filter.all": "全部",
   "activity.filter.tools": "工具",
+  // §23.4's "关闭", for the drawer's own ×. It had been borrowing
+  // `detail.close` (收起详情), which is the tool row's *expand* toggle — so the
+  // drawer's close button announced the opposite of what it does.
+  "activity.close": "关闭",
   understanding: "正在理解你的请求…",
   "strip.done": "完成 · 使用 {n} 个工具",
   "strip.stopped": "已停止 · 使用 {n} 个工具",
@@ -79,9 +84,21 @@ export const copy = {
   // §23.4: announced prefix for the once-announced error line `出了错：{caption}`.
   "err.announce": "出了错：",
   "provenance.assistant": "Chinook Music",
-  // ---- model-endpoint configuration (ApiConfigPanel) ----------------------
-  "config.button": "模型设置",
-  "config.title": "模型设置",
+  // ---- settings surface (SettingsPanel: 通用 / 模型) ----------------------
+  // The entry point is the title bar's 设置 button, whose position the previous
+  // 模型设置 button keeps; the strings below name the panel, its two tabs and
+  // the appearance choice (§18 as amended by v1.0.4).
+  "settings.tab.general": "通用",
+  "settings.tab.model": "模型",
+  "settings.appearance": "外观",
+  "settings.appearance.system": "追随系统",
+  "settings.appearance.light": "亮色",
+  "settings.appearance.dark": "暗色",
+  "theme.toggle.toLight": "切换到亮色",
+  "theme.toggle.toDark": "切换到暗色",
+  // ---- model-endpoint configuration (ApiConfigPanel, 模型 tab) ------------
+  "config.button": "设置",
+  "config.title": "设置",
   "config.sub": "配置一个 OpenAI 兼容的模型端点。Base URL 与 API Key 保存后立即生效；模型名称保存后应用到下一条消息。",
   "config.baseUrl.label": "Base URL",
   "config.baseUrl.hint": "留空使用默认端点。只需填到域名（或 /v1），不要包含 /chat/completions。",
@@ -124,7 +141,7 @@ export const copy = {
   "config.err.save": "保存失败：{message}",
   "config.err.notReady": "Agent 尚未就绪，请稍后重试",
   "config.err.noHost": "无法与 Agent 通信，请重新启动应用",
-  "card.config.action": "模型设置",
+  "card.config.action": "打开设置",
 } as const;
 
 export type CopyKey = keyof typeof copy;
