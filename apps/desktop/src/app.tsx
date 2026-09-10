@@ -20,7 +20,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { FluentProvider, makeStaticStyles } from "@fluentui/react-components";
+import { FluentProvider, makeStaticStyles, makeStyles } from "@fluentui/react-components";
 import type { Envelope } from "./protocol/types";
 import { actionFromEvent, type DrawerFilter } from "./store/actions";
 import { reducer } from "./store/reducer";
@@ -53,6 +53,19 @@ const useStaticStyles = makeStaticStyles({
 // ThemeHost
 // ---------------------------------------------------------------------------
 
+/**
+ * Keeps the shell's height chain definite: #root (100%, static styles above)
+ * → FluentProvider → .chinook-app → DesktopShell .root{height:"100%"}.
+ * Without a height on these two wrappers the shell resolves against an
+ * auto-height parent and sizes to its content, so the conversation's inner
+ * scroller never gets a bounded height and long conversations cannot scroll.
+ */
+const useHostStyles = makeStyles({
+  fill: {
+    height: "100%",
+  },
+});
+
 function useColorScheme(): "light" | "dark" {
   const query = "(prefers-color-scheme: dark)";
   const [dark, setDark] = useState(() => window.matchMedia(query).matches);
@@ -66,6 +79,7 @@ function useColorScheme(): "light" | "dark" {
 }
 
 function ThemeHost({ children }: { children: ReactNode }) {
+  const styles = useHostStyles();
   const scheme = useColorScheme();
   const theme: ThemeTokens = useMemo(
     () => (scheme === "dark" ? buildDarkTheme() : buildLightTheme()),
@@ -80,8 +94,8 @@ function ThemeHost({ children }: { children: ReactNode }) {
   }, [scheme, theme]);
 
   return (
-    <FluentProvider theme={theme}>
-      <div style={vars} className="chinook-app">
+    <FluentProvider theme={theme} className={styles.fill}>
+      <div style={vars} className={`chinook-app ${styles.fill}`}>
         {children}
       </div>
     </FluentProvider>
