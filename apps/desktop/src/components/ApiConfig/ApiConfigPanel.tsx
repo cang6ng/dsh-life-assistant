@@ -9,7 +9,13 @@
  * flow: the key travels UP only. It starts empty every time the panel opens
  * (there is nothing to prefill — the host never returns a value), it is never
  * copied into component state that outlives the save, and the state line
- * reports only whether a key resolves and from which layer.
+ * reports only whether a key resolves and from which layer. 获取模型 widens
+ * the "leaves as an argument" set to two calls, not the direction: the draft
+ * key goes out and nothing key-shaped comes back.
+ *
+ * The model list is the panel's own state, never the store's: it is a view of
+ * one endpoint's answer, so it dies with the panel and is keyed to the URL
+ * that produced it.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,6 +29,8 @@ import {
   configTestFailCopy,
   configTestOkCopy,
   configLoadFailedCopy,
+  modelsFetchFailedCopy,
+  modelsFetchedCopy,
   copy,
 } from "../../copy";
 import { useApp } from "../../appContext";
@@ -159,6 +167,32 @@ const useStyles = makeStyles({
     gap: "3px",
     minHeight: "17px",
   },
+  list: {
+    display: "flex",
+    flexDirection: "column",
+    maxHeight: "180px",
+    overflowY: "auto",
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground1,
+  },
+  row: {
+    padding: "6px 10px",
+    textAlign: "left",
+    fontSize: "12.5px",
+    fontFamily: tokens.fontFamilyMonospace,
+    color: tokens.colorNeutralForeground1,
+    backgroundColor: "transparent",
+    border: "none",
+    cursor: "pointer",
+    selectors: {
+      ":hover": { backgroundColor: tokens.colorNeutralBackground2 },
+    },
+  },
+  rowPicked: {
+    color: tokens.colorBrandForeground1,
+    backgroundColor: tokens.colorNeutralBackground2,
+  },
 });
 
 const EMPTY_FORM: ApiConfigFormValues = { baseUrl: "", model: "", apiKey: "" };
@@ -172,7 +206,20 @@ function baselineOf(config: ApiConfigData): ApiConfigFormBaseline {
 }
 
 type LoadState = "loading" | "ready" | "error";
-type Busy = "save" | "test" | null;
+type Busy = "save" | "test" | "models" | null;
+
+/**
+ * One endpoint's answer. `baseUrl` is the normalized URL that produced `ids`:
+ * the list is rendered only while the form still points there, so a stale list
+ * can never write endpoint A's model id into a form aimed at endpoint B.
+ */
+interface ModelList {
+  baseUrl: string;
+  ids: string[];
+  /** False when the endpoint answered, but not with a listing. */
+  ok: boolean;
+  message: string;
+}
 
 export function ApiConfigPanel() {
   const styles = useStyles();
@@ -187,6 +234,7 @@ export function ApiConfigPanel() {
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [clearApiKey, setClearApiKey] = useState(false);
+  const [modelList, setModelList] = useState<ModelList | null>(null);
 
   /** Adopt a configuration the host just returned as the new baseline. */
   const adopt = useCallback((next: ApiConfigData) => {
@@ -194,6 +242,8 @@ export function ApiConfigPanel() {
     setBaseline(baselineOf(next));
     setForm({ baseUrl: next.baseUrl, model: next.model, apiKey: "" });
     setClearApiKey(false);
+    // A saved endpoint invalidates any list fetched against the previous one.
+    setModelList(null);
   }, []);
 
   const load = useCallback(async () => {
@@ -269,6 +319,49 @@ export function ApiConfigPanel() {
 
   const canSave = !locked && busy === null && loadState === "ready" && dirty && !invalid;
   const canTest = !locked && busy === null && loadState === "ready" && !dirty;
+
+  // Deliberately NOT gated on a clean form: fetching is what you do *while*
+  // editing the endpoint. It is gated on a non-empty URL, though — on a fresh
+  // install `baseUrl` is "" (the default endpoint, which is not ours to
+  // interrogate) and no field error is set, so a validity-only gate would
+  // enable a button whose only possible answer is NO_BASE_URL.
+  const normalizedBaseUrl = normalizeBaseUrl(form.baseUrl).value;
+  const canFetchModels =
+    !locked && busy === null && loadState === "ready" && errors.baseUrl === undefined && normalizedBaseUrl !== "";
+  const fetchModelsTitle = locked
+    ? copy["config.model.fetchLocked"]
+    : normalizedBaseUrl === ""
+      ? copy["config.model.fetchNeedBaseUrl"]
+      : errors.baseUrl !== undefined
+        ? copy[errors.baseUrl]
+        : copy["config.model.fetchTitle"];
+
+  const onFetchModels = useCallback(async () => {
+    const target = normalizeBaseUrl(form.baseUrl).value;
+    const draftKey = form.apiKey.trim();
+    setBusy("models");
+    setModelList(null);
+    const outcome = await actions.listApiModels(
+      draftKey === "" ? { baseUrl: target } : { baseUrl: target, apiKey: draftKey },
+    );
+    setBusy(null);
+    if (!outcome.ok) {
+      setModelList({ baseUrl: target, ids: [], ok: false, message: modelsFetchFailedCopy(outcome.message) });
+      return;
+    }
+    const { listed, models, message } = outcome.data;
+    setModelList({
+      baseUrl: target,
+      ids: listed ? models : [],
+      ok: listed,
+      message: !listed
+        ? modelsFetchFailedCopy(message)
+        : models.length === 0
+          ? copy["config.model.fetchEmpty"] // a listing that is legitimately empty
+          : modelsFetchedCopy(models.length),
+    });
+  }, [actions, form.apiKey, form.baseUrl]);
+
 
   return (
     <div className={styles.host}>
@@ -385,7 +478,18 @@ export function ApiConfigPanel() {
             </div>
 
             <div className={styles.field}>
-              <Text className={styles.label}>{copy["config.model.label"]}</Text>
+              <div className={styles.labelRow}>
+                <Text className={styles.label}>{copy["config.model.label"]}</Text>
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  disabled={!canFetchModels}
+                  title={fetchModelsTitle}
+                  onClick={() => void onFetchModels()}
+                >
+                  {busy === "models" ? copy["config.model.fetching"] : copy["config.model.fetch"]}
+                </Button>
+              </div>
               <input
                 className={styles.input}
                 type="text"
@@ -400,6 +504,33 @@ export function ApiConfigPanel() {
                 <Text className={styles.error}>{copy[errors.model]}</Text>
               ) : (
                 <Text className={styles.hint}>{copy["config.model.hint"]}</Text>
+              )}
+              {/* Shown only while the form still points at the endpoint that
+                  answered — see onFetchModels. Clicking is a fill, not a save. */}
+              {modelList !== null && modelList.baseUrl === normalizedBaseUrl && (
+                <>
+                  <Text className={modelList.ok ? styles.note : styles.error}>{modelList.message}</Text>
+                  {modelList.ids.length > 0 && (
+                    <div
+                      className={styles.list}
+                      role="listbox"
+                      aria-label={copy["config.model.listLabel"]}
+                    >
+                      {modelList.ids.map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          role="option"
+                          aria-selected={id === form.model}
+                          className={id === form.model ? `${styles.row} ${styles.rowPicked}` : styles.row}
+                          onClick={() => setForm((f) => ({ ...f, model: id }))}
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

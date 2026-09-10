@@ -10,9 +10,11 @@ import type { DrawerFilter } from "./store/actions";
 import type { RootState } from "./store/state";
 import type {
   ApiConfigData,
+  ApiConfigModelsDraft,
   ApiConfigPatchData,
   ApiConfigSavedData,
   ApiConfigTestedData,
+  ApiModelsListedData,
 } from "./protocol/types";
 
 /** send() outcome for the composer hint (never throws). */
@@ -30,6 +32,16 @@ export type ApiConfigLoadResult =
 /** `config.save` likewise: the refusal text is rendered, never retried blind. */
 export type ApiConfigSaveResult =
   | { ok: true; data: ApiConfigSavedData }
+  | { ok: false; message: string };
+
+/**
+ * `config.models`. Two different failures share this shape on purpose: the
+ * request itself failing (`ok:false`, bridge refused it) and the endpoint
+ * failing to answer the listing (`ok:true` with `data.listed === false`). The
+ * panel renders both as a caption and keeps the field typeable.
+ */
+export type ApiModelsResult =
+  | { ok: true; data: ApiModelsListedData }
   | { ok: false; message: string };
 
 export interface AppActions {
@@ -63,6 +75,13 @@ export interface AppActions {
   saveApiConfig: (patch: ApiConfigPatchData) => Promise<ApiConfigSaveResult>;
   /** One minimal completion through the configured endpoint. Never throws. */
   testApiConnection: () => Promise<ApiConfigTestedData>;
+  /**
+   * Ask an endpoint which model ids it serves, so the user can pick one
+   * instead of typing it blind. The draft travels UP only, exactly as
+   * `saveApiConfig`'s field does, and is stored nowhere — never a second way
+   * to persist a credential (§44). Never throws.
+   */
+  listApiModels: (draft: ApiConfigModelsDraft) => Promise<ApiModelsResult>;
 }
 
 export interface AppValue {

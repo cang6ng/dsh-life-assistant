@@ -23,9 +23,11 @@ import {
 import { FluentProvider, makeStaticStyles, makeStyles } from "@fluentui/react-components";
 import type {
   ApiConfigData,
+  ApiConfigModelsDraft,
   ApiConfigPatchData,
   ApiConfigSavedData,
   ApiConfigTestedData,
+  ApiModelsListedData,
   Envelope,
 } from "./protocol/types";
 import { actionFromEvent, type DrawerFilter } from "./store/actions";
@@ -39,6 +41,7 @@ import {
   type AppActions,
   type ApiConfigLoadResult,
   type ApiConfigSaveResult,
+  type ApiModelsResult,
   type AppValue,
   type SendResult,
 } from "./appContext";
@@ -335,9 +338,10 @@ function AppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ---- model-endpoint configuration (§4.3, v1.0.2) ------------------------
-  // These three are the ONLY path by which a model credential leaves React,
-  // and it leaves as an argument to `bridge.configSave` and nowhere else. No
-  // result shape below has a field that could carry one back (§44).
+  // These four are the ONLY path by which a model credential leaves React, and
+  // it leaves as an argument to `bridge.configSave` (which persists it) or
+  // `bridge.configModels` (which uses it once) and nowhere else. No result
+  // shape below has a field that could carry one back (§44).
 
   const loadApiConfig = useCallback(async (): Promise<ApiConfigLoadResult> => {
     try {
@@ -394,6 +398,27 @@ function AppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
+   * `config.models` — the one-shot draft. Note what is NOT here: the key is
+   * handed straight to the bridge call, so it reaches neither the store nor a
+   * log line, and the result carries only ids and a caption.
+   */
+  const listApiModels = useCallback(
+    async (draft: ApiConfigModelsDraft): Promise<ApiModelsResult> => {
+      try {
+        const env = await bridge.configModels(draft);
+        if (bridge.envelopeIsError(env)) {
+          const err = bridge.envelopeError(env);
+          return { ok: false, message: configRequestFailedCopy(err.code, err.message) };
+        }
+        return { ok: true, data: env.data as ApiModelsListedData };
+      } catch {
+        return { ok: false, message: copy["config.err.noHost"] };
+      }
+    },
+    [],
+  );
+
+  /**
    * The config read is tied to the runtime reaching `ready`, not to mount:
    * `config.get` needs a booted runtime and answers NOT_READY before that, and
    * a cold boot needs several seconds. Leaving `ready` re-arms it, so a
@@ -432,6 +457,7 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       loadApiConfig,
       saveApiConfig,
       testApiConnection,
+      listApiModels,
     }),
     [
       send,
@@ -443,6 +469,7 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       loadApiConfig,
       saveApiConfig,
       testApiConnection,
+      listApiModels,
     ],
   );
 

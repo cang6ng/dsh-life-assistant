@@ -79,7 +79,9 @@ export interface TurnSendRequest {
 /**
  * Model-endpoint configuration. `data` is deliberately absent from get/test —
  * neither takes an argument, so neither can carry a credential value back or
- * forth. `config.save` carries a key ONE WAY only: the wire never returns one.
+ * forth. `config.save` and `config.models` each carry a key ONE WAY only: it
+ * travels up as a draft argument, and no shape on the path back has a field
+ * that could carry one (contract §44 — React never receives a credential).
  */
 export interface ConfigGetRequest {
   type: "config.get";
@@ -99,6 +101,20 @@ export interface ConfigSaveRequest {
 export interface ConfigTestRequest {
   type: "config.test";
 }
+/**
+ * Ask an endpoint which models it serves, so the model field can be chosen
+ * rather than typed blind. Nothing is persisted: the draft is used for this
+ * one outbound request and dropped.
+ */
+export interface ConfigModelsRequest {
+  type: "config.models";
+  data: {
+    /** The endpoint to interrogate; required, since a blank one names nothing. */
+    baseUrl: string;
+    /** A key typed but not yet saved. Absent or "" resolves the stored one. */
+    apiKey?: string;
+  };
+}
 
 export type Request =
   | SessionListRequest
@@ -109,7 +125,8 @@ export type Request =
   | TurnSendRequest
   | ConfigGetRequest
   | ConfigSaveRequest
-  | ConfigTestRequest;
+  | ConfigTestRequest
+  | ConfigModelsRequest;
 
 // ---------------------------------------------------------------------------
 // §26.4 session & item shapes (React-consumable; no DSH types)
@@ -277,6 +294,23 @@ export interface ApiConfigTestedData {
   message: string;
   latencyMs: number;
 }
+/**
+ * The listing's own outcome. Same trap as the probe above, same answer: the
+ * flag is `listed`, never `ok`. Unlike the probe's and the save's shapes, this
+ * one may carry endpoint-supplied data — `models` holds ids that came off the
+ * wire — so the rule it keeps is narrower: ids are strings the endpoint
+ * advertised, and no field here can hold a credential (§44).
+ */
+export interface ApiModelsListedData {
+  listed: boolean;
+  /** Model ids in endpoint order, deduplicated; [] when the listing failed. */
+  models: string[];
+  /** Machine-routable failure code; absent on success. */
+  code?: string;
+  /** Render-ready Chinese caption; "" on success. Never provider prose. */
+  message: string;
+  latencyMs: number;
+}
 
 /** type → response/event data payload map (mirrors §26.2–26.3 rows). */
 export interface DataByType {
@@ -300,6 +334,7 @@ export interface DataByType {
   "config.describe": ApiConfigData;
   "config.saved": ApiConfigSavedData;
   "config.tested": ApiConfigTestedData;
+  "config.listed": ApiModelsListedData;
 }
 
 /** Request names whose canonical success envelope type differs (response-as-event). */
@@ -316,6 +351,7 @@ export const SUCCESS_TYPE_BY_REQUEST: Record<RequestType, string> = {
   "config.get": "config.describe",
   "config.save": "config.saved",
   "config.test": "config.tested",
+  "config.models": "config.listed",
 };
 
 /** Error code vocabulary (spec §26.2 + bridge-defined generic codes). */

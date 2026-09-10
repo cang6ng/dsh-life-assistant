@@ -14,9 +14,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ApiConfigData, Envelope, SessionSummary } from "../apps/agent-bridge/src/protocol";
+import type { ApiConfigData, ApiModelsListedData, Envelope, SessionSummary } from "../apps/agent-bridge/src/protocol";
 import { cleanupTestHome, provisionTestHome } from "./helpers/test-home";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -355,6 +356,154 @@ describe("AgentBridge configuration surface over the real runtime", () => {
       // panel renders this as an empty field with the default as placeholder,
       // which is what the copy promises.
       expect(config.baseUrl).toBe("");
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+/**
+ * 获取模型 — `config.models` against the REAL runtime and a real socket.
+ *
+ * The endpoint is a throwaway `node:http` server on 127.0.0.1:0: offline, no
+ * model call, and the only way to pin what actually goes out on the wire. Two
+ * things can only be asserted here: that the stored credential is resolved
+ * through the real store when the draft carries no key, and that a draft key
+ * is what the header carries when it does.
+ *
+ * The stub deliberately echoes the Authorization header into its 401 body — a
+ * gateway that does that is exactly the case the code-only caption exists for,
+ * and the leak assertions below are only real because it does.
+ */
+describe("AgentBridge model listing over the real runtime", () => {
+  const LIST_KEY = "sk-listing-integration-000000000000";
+  const WRONG_KEY = "sk-listing-wrong-0000000000000";
+
+  let server: Server | undefined;
+  let origin = "";
+  /** Every request the stub saw — the assertion surface for the bearer. */
+  const seen: Array<{ url: string; authorization?: string }> = [];
+
+  beforeAll(async () => {
+    const stub = createServer((req, res) => {
+      const authorization = req.headers.authorization;
+      seen.push({ url: req.url ?? "", ...(authorization === undefined ? {} : { authorization }) });
+      const answer = (status: number, body: unknown): void => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (req.url === "/v1/models") {
+        if (authorization !== `Bearer ${LIST_KEY}`) {
+          answer(401, { error: { message: `invalid key: ${authorization ?? "none"}` } });
+          return;
+        }
+        answer(200, {
+          object: "list",
+          data: [{ id: "stub-a" }, { id: "stub-b", object: "model" }, { id: "stub-c" }],
+        });
+        return;
+      }
+      answer(404, { error: { message: "no such route" } });
+    });
+    server = stub;
+    await new Promise<void>((resolve) => stub.listen(0, "127.0.0.1", resolve));
+    const address = stub.address();
+    if (address === null || typeof address === "string") throw new Error("stub has no port");
+    origin = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    if (server === undefined) return;
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+  });
+
+  it("lists through the STORED credential when the draft carries no key", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const saved = await send(bridge, lines, "config.save", { baseUrl: `${origin}/v1`, apiKey: LIST_KEY });
+      expect(saved.type).toBe("config.saved");
+
+      const res = await send(bridge, lines, "config.models", { baseUrl: `${origin}/v1` });
+      expect(res.type).toBe("config.listed");
+      const data = res.data as ApiModelsListedData;
+      expect(data.listed).toBe(true);
+      expect(data.code).toBeUndefined();
+      expect(data.models).toEqual(["stub-a", "stub-b", "stub-c"]);
+      expect(data.message).toBe("");
+      // The key the adapter itself would use, read from the managed store and
+      // put on the wire as a bearer — and nowhere in the answer.
+      expect(seen.at(-1)?.authorization).toBe(`Bearer ${LIST_KEY}`);
+      expect(JSON.stringify(res.data)).not.toContain(LIST_KEY);
+      // Listing asks and never writes: the draft is not a second save path.
+      const after = await send(bridge, lines, "config.get");
+      expect((after.data as ApiConfigData).model).not.toBe("");
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("sends the DRAFT key when there is one, and leaks nothing when it is refused", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const res = await send(bridge, lines, "config.models", {
+        baseUrl: `${origin}/v1`,
+        apiKey: WRONG_KEY,
+      });
+      expect(res.type).toBe("config.listed");
+      expect(res.data).toMatchObject({ listed: false, models: [], code: "HTTP_401" });
+      // The draft outranks the stored key for this one request…
+      expect(seen.at(-1)?.authorization).toBe(`Bearer ${WRONG_KEY}`);
+      // …and the stub's body, which echoes it, reaches neither the caption nor
+      // any other field: the answer carries the code and the table's wording.
+      const data = res.data as ApiModelsListedData;
+      expect(data.message).toContain("API Key 被拒绝");
+      expect(JSON.stringify(res.data)).not.toContain(WRONG_KEY);
+      expect(JSON.stringify(res.data)).not.toContain("invalid key");
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("answers a keyless 401 as 'no credential' — and never sends a bare bearer", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const cleared = await send(bridge, lines, "config.save", { clearApiKey: true });
+      expect(cleared.type).toBe("config.saved");
+
+      const res = await send(bridge, lines, "config.models", { baseUrl: `${origin}/v1` });
+      expect(res.data).toMatchObject({ listed: false, models: [], code: "HTTP_401" });
+      expect((res.data as ApiModelsListedData).message).toContain("尚未配置 API Key");
+      // "No credential" is an absent header, not an empty one.
+      expect(Object.hasOwn(seen.at(-1) ?? {}, "authorization")).toBe(false);
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("maps an endpoint with no listing route to a 'type it yourself' caption", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const res = await send(bridge, lines, "config.models", { baseUrl: `${origin}/nope` });
+      expect(res.data).toMatchObject({ listed: false, models: [], code: "HTTP_404" });
+      expect((res.data as ApiModelsListedData).message).toContain("请手动填写模型名称");
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("refuses a blank base URL without opening a connection at all", { timeout: 60_000 }, async () => {
+    const { bridge, lines, dispose } = await bootBridge();
+    try {
+      const before = seen.length;
+      const res = await send(bridge, lines, "config.models", { baseUrl: "" });
+      // A successful request carrying a negative verdict — never an error
+      // envelope, because the bridge did not refuse it and the panel renders
+      // the two the same way as a caption.
+      expect(res.type).toBe("config.listed");
+      expect(res.data).toMatchObject({ listed: false, models: [], code: "NO_BASE_URL" });
+      expect((res.data as ApiModelsListedData).message).toContain("请先填写 Base URL");
+      expect(seen.length).toBe(before);
     } finally {
       await dispose();
     }

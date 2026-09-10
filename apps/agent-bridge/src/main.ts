@@ -409,11 +409,11 @@ export class AgentBridge {
       }
 
       // ---- model-endpoint configuration (v1.0.2) ---------------------------
-      // Reading is ungated (the panel may load mid-turn); saving and probing
-      // are TURN_ACTIVE-guarded like session.create/open — flipping the
-      // endpoint under a streaming answer is exactly what those guards exist
-      // to prevent. Note what is logged: flags and reference names only, never
-      // a value from `req.data` (the key travels in that payload).
+      // Reading is ungated (the panel may load mid-turn); saving, probing and
+      // listing are TURN_ACTIVE-guarded like session.create/open — a
+      // configuration surface working under a streaming answer is exactly what
+      // those guards exist to prevent. Note what is logged: flags and counts
+      // only, never a value from `req.data` (a key travels in that payload).
 
       case "config.get":
         try {
@@ -483,6 +483,43 @@ export class AgentBridge {
           fail(ERROR_CODES.CONFIG_UNAVAILABLE, `无法测试连接：${String(error)}`);
         }
         return;
+
+      case "config.models": {
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "当前回答进行中，无法获取模型列表");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent 尚未就绪，请重新启动后再试");
+          return;
+        }
+        const body = (req.data ?? {}) as { baseUrl?: unknown; apiKey?: unknown };
+        if (typeof body.baseUrl !== "string") {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "缺少 Base URL");
+          return;
+        }
+        if (body.apiKey !== undefined && typeof body.apiKey !== "string") {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "API Key 参数无效");
+          return;
+        }
+        const draftKey = typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : undefined;
+        try {
+          const result = await this.rt.listApiModels({
+            baseUrl: body.baseUrl,
+            ...(draftKey === undefined ? {} : { apiKey: draftKey }),
+          });
+          // Flags and a count — `draftKey` is a credential.
+          this.log(
+            `config models listed (baseUrl=${body.baseUrl !== ""}, draftKey=${draftKey !== undefined}, ` +
+              `listed=${result.listed}, count=${result.models.length})`,
+          );
+          respond("config.listed", result);
+        } catch (error) {
+          this.log(`model listing failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `无法获取模型列表：${String(error)}`);
+        }
+        return;
+      }
 
       default:
         fail(ERROR_CODES.UNKNOWN_REQUEST, `未知请求类型：${String(req.type)}`);

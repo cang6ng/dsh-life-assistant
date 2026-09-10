@@ -131,12 +131,34 @@ describe("§44 — the model credential stays out of presentation state", () => 
     }
   });
 
-  it("lets the credential travel only as a save argument", () => {
+  it("lets the credential travel only as an argument, and only upward", () => {
     const client = code("bridge/client.ts");
     // Both reads are argument-less: there is no API to ask for a key back.
     expect(client).toMatch(/export function configGet\(\): Promise<Envelope>/);
     expect(client).toMatch(/export function configTest\(\): Promise<Envelope>/);
-    expect(client).toMatch(/configSave\(patch: ApiConfigPatchData\)/);
+    // Exactly two functions accept a credential-bearing draft, and both send
+    // it host-ward: `configSave` persists it, `configModels` uses it once for
+    // one outbound request and stores nothing. A third is a new decision about
+    // the credential's direction, not an accident — so it fails here first.
+    const drafts = [
+      ...client.matchAll(/export function (\w+)\((\w+): (ApiConfigPatchData|ApiConfigModelsDraft)\)/g),
+    ].map((m) => m[1]);
+    expect(drafts).toEqual(["configSave", "configModels"]);
+  });
+
+  it("declares no listing shape able to carry a key value", () => {
+    const types = code("protocol/types.ts");
+    const declared = types.slice(types.indexOf("export interface ApiModelsListedData"));
+    const body = declared.slice(0, declared.indexOf("}"));
+    // Ids, a verdict, a machine code and our own caption. Nothing a key could
+    // ride out on — in particular not the endpoint's own prose, which a
+    // misconfigured gateway can echo a credential inside.
+    for (const field of ["listed", "models", "code", "message", "latencyMs"]) {
+      expect(body).toContain(field);
+    }
+    for (const forbidden of ["value", "preview", "last4", "masked", "apiKey"]) {
+      expect(body, forbidden).not.toContain(forbidden);
+    }
   });
 
   it("never reads the key input back out of the DOM", () => {

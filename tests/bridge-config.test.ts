@@ -23,6 +23,8 @@ import type {
   ApiConfig,
   ApiConfigPatch,
   ApiConfigSaveResult,
+  ApiModelsDraft,
+  ApiModelsResult,
   ApiProbeResult,
 } from "../apps/cli/src/runtime";
 
@@ -45,8 +47,13 @@ class FakeRuntime implements AgentRuntime {
   patches: ApiConfigPatch[] = [];
   config: ApiConfig = BASE_CONFIG;
   probe: ApiProbeResult = { connected: true, message: "", latencyMs: 12 };
+  /** Every listing draft, verbatim — the assertion surface for its key. */
+  drafts: ApiModelsDraft[] = [];
+  listed: ApiModelsResult = { listed: true, models: ["m-1", "m-2"], message: "", latencyMs: 8 };
   /** Set when the fake should reject the next save like a real service would. */
   saveThrows: Error | null = null;
+  /** Set when the fake should fail the next listing like a real service would. */
+  listThrows: Error | null = null;
 
   private releaseAsk: (() => void) | null = null;
 
@@ -88,6 +95,11 @@ class FakeRuntime implements AgentRuntime {
   }
   async testApiConnection(): Promise<ApiProbeResult> {
     return this.probe;
+  }
+  async listApiModels(draft: ApiModelsDraft): Promise<ApiModelsResult> {
+    if (this.listThrows !== null) throw this.listThrows;
+    this.drafts.push(draft);
+    return this.listed;
   }
 }
 
@@ -154,6 +166,7 @@ describe("config protocol pairing (v1.0.2)", () => {
     expect(SUCCESS_TYPE_BY_REQUEST["config.get"]).toBe("config.describe");
     expect(SUCCESS_TYPE_BY_REQUEST["config.save"]).toBe("config.saved");
     expect(SUCCESS_TYPE_BY_REQUEST["config.test"]).toBe("config.tested");
+    expect(SUCCESS_TYPE_BY_REQUEST["config.models"]).toBe("config.listed");
   });
 });
 
@@ -375,6 +388,131 @@ describe("config.test (v1.0.2)", () => {
   });
 });
 
+describe("config.models (v1.0.2)", () => {
+  it("delivers the draft to the runtime and to nowhere else", { timeout: 20_000 }, async () => {
+    const h = await boot(new FakeRuntime());
+    try {
+      const res = await h.send("config.models", { baseUrl: "https://gateway.example.com/v1", apiKey: KEY });
+      expect(res.type).toBe("config.listed");
+      expect(res.data).toMatchObject({ listed: true, models: ["m-1", "m-2"] });
+      // Verbatim and only as an argument — the same journey `config.save`'s key
+      // takes, and the draft is stored nowhere on the way (no patch is written).
+      expect(h.runtime?.drafts).toEqual([
+        { baseUrl: "https://gateway.example.com/v1", apiKey: KEY },
+      ]);
+      expect(h.runtime?.patches).toEqual([]);
+      // `{ ok: false }` is the error-envelope discriminator; a *successful*
+      // request whose listing failed would otherwise be read as a failed one.
+      expect(Object.hasOwn(res.data as object, "ok")).toBe(false);
+      expect(h.allOutput()).not.toContain(KEY);
+      expect(h.logs.join("\n")).toContain("draftKey=true");
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("passes an ABSENT or EMPTY apiKey through as absent — the stored-key path", { timeout: 20_000 }, async () => {
+    const h = await boot(new FakeRuntime());
+    try {
+      await h.send("config.models", { baseUrl: "https://gateway.example.com/v1" });
+      await h.send("config.models", { baseUrl: "https://gateway.example.com/v1", apiKey: "" });
+      // Not `undefined`-valued: a real runtime branches on
+      // `draft.apiKey === undefined` to decide whether to resolve the stored
+      // credential, and a present-but-empty key is not the same request.
+      expect(h.runtime?.drafts).toEqual([
+        { baseUrl: "https://gateway.example.com/v1" },
+        { baseUrl: "https://gateway.example.com/v1" },
+      ]);
+      for (const draft of h.runtime?.drafts ?? []) {
+        expect(Object.hasOwn(draft, "apiKey")).toBe(false);
+      }
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("rejects a missing base URL and a non-string key", { timeout: 20_000 }, async () => {
+    const h = await boot(new FakeRuntime());
+    try {
+      // What the bridge judges is the SHAPE. An empty string is a well-formed
+      // base URL, and the runtime answers it in the listing's own vocabulary
+      // (NO_BASE_URL) — judging the URL itself is the panel's and the host's
+      // job, so a blank one is deliberately not an INVALID_ARGUMENT here.
+      for (const payload of [{}, { baseUrl: 7 }, { baseUrl: "https://x.example", apiKey: 7 }]) {
+        const res = await h.send("config.models", payload);
+        expect(res.data).toMatchObject({ ok: false, error: { code: ERROR_CODES.INVALID_ARGUMENT } });
+      }
+      expect(h.runtime?.drafts).toEqual([]);
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("passes a failed listing through as a caption, not as an error envelope", { timeout: 20_000 }, async () => {
+    const runtime = new FakeRuntime();
+    runtime.listed = {
+      listed: false,
+      models: [],
+      code: "HTTP_404",
+      message: "该端点未提供模型列表（404），请手动填写模型名称",
+      latencyMs: 21,
+    };
+    const h = await boot(runtime);
+    try {
+      const res = await h.send("config.models", { baseUrl: "https://gateway.example.com/v1" });
+      expect(res.type).toBe("config.listed");
+      expect(res.data).toMatchObject({ listed: false, models: [], code: "HTTP_404" });
+      expect(JSON.stringify(res.data)).toContain("请手动填写模型名称");
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("reports an unroutable listing as CONFIG_UNAVAILABLE rather than crashing", { timeout: 20_000 }, async () => {
+    const runtime = new FakeRuntime();
+    runtime.listThrows = new Error("llm service not mounted");
+    const h = await boot(runtime);
+    try {
+      const res = await h.send("config.models", { baseUrl: "https://gateway.example.com/v1" });
+      expect(res.data).toMatchObject({ ok: false, error: { code: ERROR_CODES.CONFIG_UNAVAILABLE } });
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("answers NOT_READY while no runtime is up, like every other request", { timeout: 20_000 }, async () => {
+    const h = await boot(null);
+    try {
+      const res = await h.send("config.models", { baseUrl: "https://gateway.example.com/v1" });
+      expect(res.data).toMatchObject({ ok: false, error: { code: ERROR_CODES.NOT_READY } });
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+
+  it("guards against listing mid-turn", { timeout: 20_000 }, async () => {
+    const h = await boot(new FakeRuntime());
+    try {
+      const created = await h.send("session.create");
+      const turn = h.bridge.handleRequestLine(
+        JSON.stringify({
+          protocolVersion: 1,
+          requestId: "t1",
+          type: "turn.send",
+          data: { sessionId: created.sessionId, text: "hi" },
+        }),
+      );
+      const blocked = await h.send("config.models", { baseUrl: "https://gateway.example.com/v1" });
+      expect(blocked.data).toMatchObject({ ok: false, error: { code: ERROR_CODES.TURN_ACTIVE } });
+      expect(h.runtime?.drafts).toEqual([]);
+      h.runtime?.finishTurn();
+      await turn;
+    } finally {
+      await h.bridge.dispose();
+    }
+  });
+});
+
 describe("probe failure captions (pure table)", () => {
   it("maps the whole DSH failure vocabulary to Chinese, by code alone", () => {
     expect(describeProbeFailure({ code: "MISSING_CREDENTIAL" })).toContain("尚未配置 API Key");
@@ -422,6 +560,8 @@ describe("bridge stdout purity (§10) under configuration traffic", () => {
       await h.send("config.save", { baseUrl: "https://gateway.example.com", model: "gpt-4o-mini", apiKey: KEY });
       await h.send("config.save", { clearApiKey: true });
       await h.send("config.test");
+      await h.send("config.models", { baseUrl: "https://gateway.example.com", apiKey: KEY });
+      await h.send("config.models", { baseUrl: "https://gateway.example.com" });
 
       const dump = h.allOutput();
       expect(dump).not.toContain(KEY);

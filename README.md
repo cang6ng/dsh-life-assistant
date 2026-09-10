@@ -22,7 +22,7 @@ Everything below is real and shipped in v1.0.1 — all of it powered by the Chin
 - **Visible Tool Activity** — every tool call is surfaced live, not hidden inside the model
 - **Desktop Activity Drawer** — a full, inspectable trace of the agent run: model turns, tool calls, timings
 - **Sidecar restart recovery** — the agent process is watched, restarted and reconnected automatically
-- **In-app model endpoint configuration** — point the app at any OpenAI-compatible endpoint (base URL, API key, model name) and test the connection, without touching environment variables *(on `main`, in the next installer)*
+- **In-app model endpoint configuration** — point the app at any OpenAI-compatible endpoint (base URL, API key, model name), pick the model from the endpoint's own list, and test the connection, without touching environment variables *(on `main`, in the next installer)*
 
 ## Current Domain — Chinook Music
 
@@ -219,7 +219,7 @@ The app has an in-app settings panel, so a fresh install can be pointed at a mod
 2. Fill in three fields:
    - **Base URL** — any OpenAI-compatible endpoint, e.g. `https://api.deepseek.com`. Give only the domain (or up to `/v1`); a trailing `/chat/completions` is stripped for you. Leave it empty to use the endpoint's built-in default.
    - **API Key** — issued by whichever gateway you point at (create one at the [DeepSeek open platform](https://platform.deepseek.com/)). The field starts empty every time the panel opens and its value is never read back: the key is written to the app's local credential store (`%APPDATA%\com.dsh.chinook\agent\.credentials.yaml`, owner-only) and the panel only ever reports *whether* a key resolves and from which layer. Leave it empty to keep the stored key.
-   - **模型名称** — sent verbatim to the endpoint.
+   - **模型名称** — sent verbatim to the endpoint. Click **获取模型** beside the field to ask the Base URL which models it serves (`GET {baseUrl}/models`, the OpenAI-compatible standard) and pick from a clickable list — the ids a third-party gateway expects are rarely guessable. Not every endpoint implements `/models`; when yours does not, the panel says so and the field stays free text.
 3. Click **保存并测试连接**. The endpoint, credential and model are saved, then exercised with one minimal real request, and the outcome is reported in Chinese — a rejected key, an unknown model, an unreachable host. A saved model applies to your next message; no restart is needed.
 
 The panel is on `main` and is not in the v1.0.1 installer — on that build, use the environment-variable route below.

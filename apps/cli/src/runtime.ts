@@ -34,6 +34,7 @@ import { createUserMessage, errorChain, normalizeApiKey, type UserMessage } from
 import { SessionId, type Session, type SessionEvent } from "@deepseek-ai/dsh-session";
 import type { Context } from "@deepseek-ai/cordis";
 import { describeProbeFailure, type ProbeFailureLike } from "./probe-failure";
+import { describeModelListFailure, fetchModelList, modelListingUrl } from "./model-list";
 
 export const PROFILE_NAME = "chinook";
 export const BIN_NAME = "chinook-agent";
@@ -90,9 +91,13 @@ interface SettingsProviderLike {
   mutate(ns: string, ops: readonly SettingsPathOpLike[], expectedRevision?: number): Promise<void>;
 }
 
-/** `ctx.credentials` — never returns a value, only whether one resolves. */
+/**
+ * `ctx.credentials` — `describe` for every surface that must not see a value,
+ * `resolve` only where the host itself has to send the credential onward.
+ */
 interface CredentialProviderLike {
   describe(ref: string): Promise<{ configured: boolean; source?: string; writable: boolean }>;
+  resolve(ref: string): Promise<{ value: string; source: string } | undefined>;
   set(ref: string, value: string): Promise<void>;
   unset(ref: string): Promise<void>;
 }
@@ -187,6 +192,31 @@ export interface ApiProbeResult {
   latencyMs: number;
 }
 
+/** What one listing asks about; both fields are one-shot and stored nowhere. */
+export interface ApiModelsDraft {
+  /** The endpoint to interrogate, as the user currently has it in the form. */
+  baseUrl: string;
+  /** A key typed but not yet saved. Absent or "" resolves the stored one. */
+  apiKey?: string;
+}
+
+/** One model-listing outcome; `message` is render-ready Chinese. */
+export interface ApiModelsResult {
+  /**
+   * Whether the endpoint answered with a list. Deliberately NOT named `ok`: a
+   * *successful* request whose listing failed would otherwise carry `ok: false`
+   * and be read as a failed request by the bridge's error discriminator.
+   */
+  listed: boolean;
+  /** Model ids in endpoint order, deduplicated; [] when the listing failed. */
+  models: string[];
+  /** Machine-routable failure code, absent on success. */
+  code?: string;
+  /** Chinese caption; "" on success. Never provider prose and never the raw body. */
+  message: string;
+  latencyMs: number;
+}
+
 /** The client surface main.ts drives. */
 export interface AgentRuntime {
   /** Create a fresh session, or resume a persisted one; returns the session id. */
@@ -238,6 +268,13 @@ export interface AgentRuntime {
    * exercises credential resolution, the base URL and the model id together.
    */
   testApiConnection(): Promise<ApiProbeResult>;
+  /**
+   * Ask an endpoint which models it serves (`GET {baseUrl}/models`) so the
+   * model field can be chosen rather than typed blind. The draft is one-shot:
+   * its base URL and any key in it are used for this request and stored
+   * nowhere. Never returns a credential value.
+   */
+  listApiModels(draft: ApiModelsDraft): Promise<ApiModelsResult>;
 }
 
 export async function createAgentRuntime(): Promise<AgentRuntime> {
@@ -636,6 +673,56 @@ export async function createAgentRuntime(): Promise<AgentRuntime> {
     return { connected: true, message: "", latencyMs };
   };
 
+  const listApiModels = async (draft: ApiModelsDraft): Promise<ApiModelsResult> => {
+    const startedAt = Date.now();
+    const refuse = (code: string, sentCredential: boolean): ApiModelsResult => {
+      // The code is the diagnostic; the caption is composed from it alone.
+      console.error(`[model-list] failed: ${code}`);
+      return {
+        listed: false,
+        models: [],
+        code,
+        message: describeModelListFailure({ code }, { timeoutMs: PROBE_TIMEOUT_MS, sentCredential }),
+        latencyMs: Date.now() - startedAt,
+      };
+    };
+
+    const url = modelListingUrl(draft.baseUrl);
+    if (url === null) return refuse("NO_BASE_URL", false);
+
+    // The key: the one just typed, else the stored one. A typed key is checked
+    // exactly as a saved one would be — a pasted trailing newline must not
+    // become a malformed header.
+    let apiKey: string | undefined;
+    if (draft.apiKey !== undefined && draft.apiKey !== "") {
+      const check = normalizeApiKey(draft.apiKey);
+      if (!check.ok) return refuse("INVALID_CREDENTIAL", true);
+      apiKey = check.value;
+    } else {
+      const credentials = ctx.get("credentials") as CredentialProviderLike | undefined;
+      // Per call, never cached: an unmounted store means "no key", not a
+      // failure — an endpoint that needs none still answers.
+      apiKey = credentials === undefined
+        ? undefined
+        : (await credentials.resolve(apiKeyRef(llmSettingsDescriptor())))?.value;
+    }
+    const sentCredential = apiKey !== undefined && apiKey !== "";
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const listed = await fetchModelList({
+        url,
+        ...(sentCredential ? { apiKey } : {}),
+        signal: controller.signal,
+      });
+      if (!listed.ok) return refuse(listed.failure.code ?? "UNKNOWN", sentCredential);
+      return { listed: true, models: listed.models, message: "", latencyMs: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const listSessions = async (): Promise<Array<{ id: string; createdAt: number }>> => {
     if (persistence === undefined) return [];
     const headers = await persistence.list();
@@ -669,6 +756,7 @@ export async function createAgentRuntime(): Promise<AgentRuntime> {
     readApiConfig,
     saveApiConfig,
     testApiConnection,
+    listApiModels,
   };
 }
 

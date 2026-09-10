@@ -25,6 +25,7 @@ pub fn run() {
             commands::config_get,
             commands::config_save,
             commands::config_test,
+            commands::config_models,
             commands::events_subscribe,
             commands::window_minimize,
             commands::window_toggle_maximize,

@@ -96,6 +96,15 @@ export const copy = {
   "config.apiKey.willClear": "保存后将清除本机保存的密钥",
   "config.model.label": "模型名称",
   "config.model.hint": "模型名会原样发送给端点。",
+  "config.model.fetch": "获取模型",
+  "config.model.listLabel": "模型列表",
+  "config.model.fetching": "正在获取…",
+  "config.model.fetchTitle": "从 Base URL 请求模型列表（GET /models）",
+  "config.model.fetchNeedBaseUrl": "请先填写 Base URL，再获取模型列表",
+  "config.model.fetchLocked": "请等待当前回答完成，再获取模型列表",
+  "config.model.fetched": "已获取 {count} 个模型 · 也可直接输入",
+  "config.model.fetchEmpty": "端点未返回任何模型，请手动填写模型名称",
+  "config.model.fetchFailed": "获取失败：{message}",
   "config.save": "保存",
   "config.saveAndTest": "保存并测试连接",
   "config.test": "测试连接",
@@ -155,10 +164,20 @@ export function configTestFailCopy(message: string): string {
   return copy["config.test.fail"].replace("{message}", message);
 }
 
+/** `已获取 N 个模型 · 也可直接输入` — N is a count, never any part of the body. */
+export function modelsFetchedCopy(count: number): string {
+  return copy["config.model.fetched"].replace("{count}", String(count));
+}
+
+export function modelsFetchFailedCopy(message: string): string {
+  return copy["config.model.fetchFailed"].replace("{message}", message);
+}
+
 /**
- * A `config.test` request the bridge itself refused, so the probe never ran.
- * The bridge's Chinese words are for a person, not for a user staring at a
- * disabled composer — translate the two that mean something here.
+ * A `config.test`/`config.models` request the bridge itself refused, so the
+ * probe (or the listing) never ran. The bridge's Chinese words are for a
+ * person, not for a user staring at a disabled composer — translate the two
+ * that mean something here.
  */
 export function configRequestFailedCopy(code: string, message: string): string {
   if (code === "NOT_READY") return copy["config.err.notReady"];

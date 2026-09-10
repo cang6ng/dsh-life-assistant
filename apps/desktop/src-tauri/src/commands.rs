@@ -163,6 +163,24 @@ pub async fn config_test(manager: ManagerState<'_>) -> Result<Envelope, String> 
     Ok(agent_request(Arc::clone(&manager), "config.test", serde_json::json!({})).await)
 }
 
+/// Ask an endpoint which model ids it serves. `api_key` is write-only: it
+/// travels frontend -> host -> bridge for this one outbound request and is
+/// never echoed back. The body is built by hand so an absent key stays absent,
+/// rather than arriving as a null the bridge would have to special-case.
+#[tauri::command]
+pub async fn config_models(
+    manager: ManagerState<'_>,
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<Envelope, String> {
+    let mut data = serde_json::Map::new();
+    data.insert("baseUrl".to_string(), Value::String(base_url));
+    if let Some(value) = api_key {
+        data.insert("apiKey".to_string(), Value::String(value));
+    }
+    Ok(agent_request(Arc::clone(&manager), "config.models", Value::Object(data)).await)
+}
+
 // ---------------------------------------------------------------------------
 // events
 // ---------------------------------------------------------------------------

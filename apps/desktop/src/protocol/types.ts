@@ -186,6 +186,20 @@ export interface ApiConfigTestedData {
   message: string;
   latencyMs: number;
 }
+/**
+ * A listing outcome. Same trap as the probe's flag, same answer: it is
+ * `listed`, never `ok`. The one endpoint-supplied thing here is `models` —
+ * model ids, which the UI offers as choices and sends back verbatim. No field
+ * in this shape can carry a credential (§44).
+ */
+export interface ApiModelsListedData {
+  listed: boolean;
+  models: string[];
+  code?: string;
+  /** Render-ready Chinese caption; "" on success. */
+  message: string;
+  latencyMs: number;
+}
 
 /** One `config.save` patch; absent fields mean "leave unchanged". */
 export interface ApiConfigPatchData {
@@ -193,6 +207,16 @@ export interface ApiConfigPatchData {
   model?: string;
   apiKey?: string;
   clearApiKey?: boolean;
+}
+
+/**
+ * One `config.models` draft. Both halves are one-shot: they are sent, used for
+ * one outbound request, and stored nowhere — so this is a way to *ask about* an
+ * endpoint the user has not committed to, not a second way to save one.
+ */
+export interface ApiConfigModelsDraft {
+  baseUrl: string;
+  apiKey?: string;
 }
 
 /** Uniform error shape `{ ok:false, error:{ code, message } }`. */

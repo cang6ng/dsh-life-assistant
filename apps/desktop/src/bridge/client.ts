@@ -10,7 +10,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { ApiConfigPatchData, Envelope } from "../protocol/types";
+import type { ApiConfigModelsDraft, ApiConfigPatchData, Envelope } from "../protocol/types";
 import { isErrorData } from "../protocol/types";
 
 export interface CommandError {
@@ -68,9 +68,11 @@ export function turnSend(sessionId: string, text: string): Promise<Envelope> {
 // ---------------------------------------------------------------------------
 // model-endpoint configuration
 //
-// NOTE the direction of `apiKey`: it is an argument, never a result. No
-// function in this module returns a credential, and the response shapes it
-// resolves with have no field that could carry one (§44).
+// NOTE the direction of `apiKey`: it is an argument, never a result. Two
+// functions accept one — `configSave` (persists it) and `configModels` (uses
+// it once, for one outbound request) — and no function in this module returns
+// a credential, because the response shapes it resolves with have no field
+// that could carry one (§44).
 // ---------------------------------------------------------------------------
 
 export function configGet(): Promise<Envelope> {
@@ -94,6 +96,18 @@ export function configSave(patch: ApiConfigPatchData): Promise<Envelope> {
 
 export function configTest(): Promise<Envelope> {
   return request("config_test", {});
+}
+
+/**
+ * Ask an endpoint which model ids it serves. The draft is one-shot: it is sent,
+ * used for this request, and stored nowhere — so the panel can list an endpoint
+ * the user has not committed to yet. The key is omitted rather than passed as
+ * `undefined`, for the same reason as `configSave` above.
+ */
+export function configModels(draft: ApiConfigModelsDraft): Promise<Envelope> {
+  const args: Record<string, unknown> = { baseUrl: draft.baseUrl };
+  if (draft.apiKey !== undefined) args.apiKey = draft.apiKey;
+  return request("config_models", args);
 }
 
 // ---------------------------------------------------------------------------

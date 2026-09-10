@@ -15,7 +15,7 @@ import {
 import {
   installModelSelection
 } from "@deepseek-ai/dsh-agent";
-import { createUserMessage, errorChain, normalizeApiKey } from "@deepseek-ai/dsh-llm";
+import { createUserMessage, errorChain as errorChain2, normalizeApiKey } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 
 // apps/cli/src/probe-failure.ts
@@ -63,6 +63,107 @@ function describeProbeFailure(failure, context = {}) {
     default:
       return failure.code.startsWith("HTTP_") ? `\u7AEF\u70B9\u8FD4\u56DE HTTP ${failure.code.slice("HTTP_".length)}` : `\u8FDE\u63A5\u5931\u8D25\uFF08${failure.code}\uFF09`;
   }
+}
+
+// apps/cli/src/model-list.ts
+import { errorChain } from "@deepseek-ai/dsh-llm";
+var MODELS_PATH = "/models";
+var CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
+var MODEL_LIST_MAX_BYTES = 4 * 1024 * 1024;
+function modelListingUrl(raw) {
+  let value = raw.trim().replace(/\/+$/, "");
+  if (value.toLowerCase().endsWith(CHAT_COMPLETIONS_SUFFIX)) {
+    value = value.slice(0, -CHAT_COMPLETIONS_SUFFIX.length).replace(/\/+$/, "");
+  }
+  if (value === "") return null;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:" || parsed.hostname === "") {
+    return null;
+  }
+  return `${value}${MODELS_PATH}`;
+}
+function parseModelList(body) {
+  if (body === null || typeof body !== "object") return { ok: false };
+  const data = body.data;
+  if (!Array.isArray(data)) return { ok: false };
+  const seen = /* @__PURE__ */ new Set();
+  const models = [];
+  for (const row of data) {
+    if (row === null || typeof row !== "object") continue;
+    const id = row.id;
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (trimmed === "" || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    models.push(trimmed);
+  }
+  return { ok: true, models };
+}
+function describeModelListFailure(failure, context = {}) {
+  switch (failure.code) {
+    case "NO_BASE_URL":
+      return "\u8BF7\u5148\u586B\u5199 Base URL\uFF0C\u7559\u7A7A\u65F6\u65E0\u6CD5\u83B7\u53D6\u6A21\u578B\u5217\u8868";
+    case "INVALID_RESPONSE":
+      return "\u7AEF\u70B9\u672A\u8FD4\u56DE\u6A21\u578B\u5217\u8868\uFF08\u4E0D\u662F\u6709\u6548\u7684 OpenAI \u517C\u5BB9\u54CD\u5E94\uFF09";
+    case "HTTP_404":
+      return "\u8BE5\u7AEF\u70B9\u672A\u63D0\u4F9B\u6A21\u578B\u5217\u8868\uFF08404\uFF09\uFF0C\u8BF7\u624B\u52A8\u586B\u5199\u6A21\u578B\u540D\u79F0";
+    case "HTTP_401":
+    case "HTTP_403":
+      if (context.sentCredential === false) {
+        return "\u5C1A\u672A\u914D\u7F6E API Key\uFF1B\u82E5\u8BE5\u7AEF\u70B9\u9700\u8981\u5BC6\u94A5\uFF0C\u8BF7\u586B\u5199\u540E\u518D\u83B7\u53D6";
+      }
+      return describeProbeFailure({ code: "AUTH" });
+    default:
+      break;
+  }
+  return describeProbeFailure(failure, { timeoutMs: context.timeoutMs });
+}
+async function fetchModelList(options) {
+  const doFetch = options.fetchImpl ?? globalThis.fetch;
+  const headers = { accept: "application/json" };
+  if (options.apiKey !== void 0 && options.apiKey !== "") {
+    headers.authorization = `Bearer ${options.apiKey}`;
+  }
+  let response;
+  try {
+    response = await doFetch(options.url, { method: "GET", headers, signal: options.signal });
+  } catch (error) {
+    console.error(`[model-list] request failed: ${errorChain(error)}`);
+    return { ok: false, failure: { code: options.signal.aborted ? "TIMEOUT" : "TRANSPORT" } };
+  }
+  if (!response.ok) {
+    console.error(`[model-list] endpoint answered HTTP ${response.status}`);
+    return { ok: false, failure: { code: `HTTP_${response.status}`, status: response.status } };
+  }
+  let text;
+  try {
+    text = await response.text();
+  } catch (error) {
+    console.error(`[model-list] body read failed: ${errorChain(error)}`);
+    return { ok: false, failure: { code: "TRANSPORT" } };
+  }
+  if (text.length > MODEL_LIST_MAX_BYTES) {
+    console.error(`[model-list] body too large (${text.length} chars)`);
+    return { ok: false, failure: { code: "INVALID_RESPONSE" } };
+  }
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    console.error("[model-list] body is not JSON");
+    return { ok: false, failure: { code: "INVALID_RESPONSE" } };
+  }
+  const parsed = parseModelList(body);
+  if (!parsed.ok) {
+    console.error("[model-list] body carries no model array");
+    return { ok: false, failure: { code: "INVALID_RESPONSE" } };
+  }
+  return { ok: true, models: parsed.models };
 }
 
 // apps/cli/src/runtime.ts
@@ -306,7 +407,7 @@ async function createAgentRuntime() {
         try {
           await credentials.set(ref, check.value);
         } catch (error) {
-          console.error(`[warning] credential write failed: ${errorChain(error)}`);
+          console.error(`[warning] credential write failed: ${errorChain2(error)}`);
           apiKeyError = "\u5BC6\u94A5\u5199\u5165\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
         }
       }
@@ -346,7 +447,7 @@ async function createAgentRuntime() {
         break;
       }
     } catch (error) {
-      console.error(`[warning] probe stream failed: ${errorChain(error)}`);
+      console.error(`[warning] probe stream failed: ${errorChain2(error)}`);
       failure = { code: "PROBE_FAILED" };
     } finally {
       clearTimeout(timer);
@@ -370,6 +471,44 @@ async function createAgentRuntime() {
       };
     }
     return { connected: true, message: "", latencyMs };
+  };
+  const listApiModels = async (draft) => {
+    const startedAt = Date.now();
+    const refuse = (code, sentCredential2) => {
+      console.error(`[model-list] failed: ${code}`);
+      return {
+        listed: false,
+        models: [],
+        code,
+        message: describeModelListFailure({ code }, { timeoutMs: PROBE_TIMEOUT_MS, sentCredential: sentCredential2 }),
+        latencyMs: Date.now() - startedAt
+      };
+    };
+    const url = modelListingUrl(draft.baseUrl);
+    if (url === null) return refuse("NO_BASE_URL", false);
+    let apiKey;
+    if (draft.apiKey !== void 0 && draft.apiKey !== "") {
+      const check = normalizeApiKey(draft.apiKey);
+      if (!check.ok) return refuse("INVALID_CREDENTIAL", true);
+      apiKey = check.value;
+    } else {
+      const credentials = ctx.get("credentials");
+      apiKey = credentials === void 0 ? void 0 : (await credentials.resolve(apiKeyRef(llmSettingsDescriptor())))?.value;
+    }
+    const sentCredential = apiKey !== void 0 && apiKey !== "";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const listed = await fetchModelList({
+        url,
+        ...sentCredential ? { apiKey } : {},
+        signal: controller.signal
+      });
+      if (!listed.ok) return refuse(listed.failure.code ?? "UNKNOWN", sentCredential);
+      return { listed: true, models: listed.models, message: "", latencyMs: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
+    }
   };
   const listSessions = async () => {
     if (persistence === void 0) return [];
@@ -398,7 +537,8 @@ async function createAgentRuntime() {
     readActiveSessionSnapshot,
     readApiConfig,
     saveApiConfig,
-    testApiConnection
+    testApiConnection,
+    listApiModels
   };
 }
 
@@ -1368,11 +1508,11 @@ var AgentBridge = class {
         return;
       }
       // ---- model-endpoint configuration (v1.0.2) ---------------------------
-      // Reading is ungated (the panel may load mid-turn); saving and probing
-      // are TURN_ACTIVE-guarded like session.create/open — flipping the
-      // endpoint under a streaming answer is exactly what those guards exist
-      // to prevent. Note what is logged: flags and reference names only, never
-      // a value from `req.data` (the key travels in that payload).
+      // Reading is ungated (the panel may load mid-turn); saving, probing and
+      // listing are TURN_ACTIVE-guarded like session.create/open — a
+      // configuration surface working under a streaming answer is exactly what
+      // those guards exist to prevent. Note what is logged: flags and counts
+      // only, never a value from `req.data` (a key travels in that payload).
       case "config.get":
         try {
           respond("config.describe", await this.rt.readApiConfig());
@@ -1430,6 +1570,40 @@ var AgentBridge = class {
           fail(ERROR_CODES.CONFIG_UNAVAILABLE, `\u65E0\u6CD5\u6D4B\u8BD5\u8FDE\u63A5\uFF1A${String(error)}`);
         }
         return;
+      case "config.models": {
+        if (this.busy) {
+          fail(ERROR_CODES.TURN_ACTIVE, "\u5F53\u524D\u56DE\u7B54\u8FDB\u884C\u4E2D\uFF0C\u65E0\u6CD5\u83B7\u53D6\u6A21\u578B\u5217\u8868");
+          return;
+        }
+        if (this.runtimeStatus !== "ready") {
+          fail(ERROR_CODES.NOT_READY, "Agent \u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u91CD\u65B0\u542F\u52A8\u540E\u518D\u8BD5");
+          return;
+        }
+        const body = req.data ?? {};
+        if (typeof body.baseUrl !== "string") {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "\u7F3A\u5C11 Base URL");
+          return;
+        }
+        if (body.apiKey !== void 0 && typeof body.apiKey !== "string") {
+          fail(ERROR_CODES.INVALID_ARGUMENT, "API Key \u53C2\u6570\u65E0\u6548");
+          return;
+        }
+        const draftKey = typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : void 0;
+        try {
+          const result = await this.rt.listApiModels({
+            baseUrl: body.baseUrl,
+            ...draftKey === void 0 ? {} : { apiKey: draftKey }
+          });
+          this.log(
+            `config models listed (baseUrl=${body.baseUrl !== ""}, draftKey=${draftKey !== void 0}, listed=${result.listed}, count=${result.models.length})`
+          );
+          respond("config.listed", result);
+        } catch (error) {
+          this.log(`model listing failed: ${String(error)}`);
+          fail(ERROR_CODES.CONFIG_UNAVAILABLE, `\u65E0\u6CD5\u83B7\u53D6\u6A21\u578B\u5217\u8868\uFF1A${String(error)}`);
+        }
+        return;
+      }
       default:
         fail(ERROR_CODES.UNKNOWN_REQUEST, `\u672A\u77E5\u8BF7\u6C42\u7C7B\u578B\uFF1A${String(req.type)}`);
     }
